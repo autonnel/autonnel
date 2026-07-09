@@ -1,0 +1,64 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { getProviderByDbKey } from '@/lib/adapters/payment/registry';
+import '@/lib/adapters/payment/providers';
+import { getPaymentProviderEntryWithCredentials } from '@/lib/config/payment';
+import PaymentProviderForm from '@/components/settings/payment/PaymentProviderForm';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PAYMENT);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const slug = (Astro.params.provider || '').toUpperCase();
+const entry = getProviderByDbKey(slug);
+if (!entry) {
+  return new Response('Not Found', { status: 404 });
+}
+
+const existing = await getPaymentProviderEntryWithCredentials(slug as any);
+const storedCredentials = (existing?.credentials ?? {}) as Record<string, unknown>;
+const visibleValues: Record<string, string> = {};
+for (const field of entry.formFields) {
+  if (field.type === 'password') continue;
+  const v = storedCredentials[field.key];
+  if (typeof v === 'string') visibleValues[field.key] = v;
+}
+const existingForForm = existing
+  ? {
+      mode: ((existing.settings as Record<string, any>)?.mode as string) || 'sandbox',
+      values: visibleValues,
+    }
+  : null;
+
+const breadcrumbs = [
+  { label: 'Autonnel', href: '/' },
+  { label: 'Payment', href: '/payment' },
+  { label: entry.displayName },
+];
+---
+
+<DashboardLayout
+  title={entry.displayName}
+  activeNav="payment.payment"
+  breadcrumbs={breadcrumbs}
+>
+  <div class="max-w-3xl">
+    <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+      <PaymentProviderForm
+        providerId={entry.dbProvider}
+        displayName={entry.displayName}
+        formFields={entry.formFields}
+        existing={existingForForm}
+        client:load
+      />
+    </div>
+  </div>
+</DashboardLayout>

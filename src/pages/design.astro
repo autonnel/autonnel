@@ -1,0 +1,28 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import DesignPreview from '@/components/primitives/ds/DesignPreview';
+import { checkAuth } from '@/lib/auth/middleware';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+---
+
+<DashboardLayout title="Design preview" activeNav="overview">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-4 flex items-center justify-between gap-4 flex-wrap mb-5">
+    <div>
+      <div class="text-[14px] font-semibold text-ds-ink">Admin Layout Preview (Phase 10.2)</div>
+      <div class="text-[12.5px] text-ds-muted mt-0.5">
+        Sidebar / Topbar / PageHeader / Footer — view in context.
+      </div>
+    </div>
+    <a
+      href="/dashboard-preview"
+      class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937] no-underline"
+    >
+      Open DashboardLayout preview
+    </a>
+  </div>
+  <DesignPreview client:load />
+</DashboardLayout>

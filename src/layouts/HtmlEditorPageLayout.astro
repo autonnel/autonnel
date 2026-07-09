@@ -1,0 +1,188 @@
+---
+// The synchronous <script define:vars> block MUST appear in the DOM before Tracking.
+import Tracking from '@/components/storefront/Tracking.astro';
+
+interface Favicon {
+  variants?: Record<string, string | undefined>;
+}
+
+export interface Props {
+  tenantId: string;
+  tenantName?: string | null;
+  pageId: string;
+  pageType?: string | null;
+  pageTitle: string;
+  pageDescription?: string;
+  ogImage?: string;
+  favicon?: Favicon | null;
+  rawHtmlContent: string;
+  pageCssContent?: string;
+  pageHeadContent?: string;
+  pageBodyScripts?: string;
+  headScriptsHtml?: string;
+  bodyStartScriptsHtml?: string;
+  bodyEndScriptsHtml?: string;
+  funnelId?: string | null;
+  funnelPageType?: string | null;
+  stepIndex?: number;
+  funnelCtaUrl?: string | null;
+  ssrUrlParams?: Record<string, string>;
+  serverGeneratedAnid?: string;
+  showDraftBanner?: boolean;
+  draftBannerText?: string;
+  includeFontsAndPreconnect?: boolean;
+}
+
+const {
+  tenantId,
+  tenantName = null,
+  pageId,
+  pageType = null,
+  pageTitle,
+  pageDescription = '',
+  ogImage,
+  favicon = null,
+  rawHtmlContent,
+  pageCssContent = '',
+  pageHeadContent = '',
+  pageBodyScripts = '',
+  headScriptsHtml = '',
+  bodyStartScriptsHtml = '',
+  bodyEndScriptsHtml = '',
+  funnelId = null,
+  funnelPageType = null,
+  stepIndex = 0,
+  funnelCtaUrl = null,
+  ssrUrlParams = {},
+  serverGeneratedAnid = '',
+  showDraftBanner = false,
+  draftBannerText = 'Draft Preview Mode - This is the unpublished version of the page',
+  includeFontsAndPreconnect = true,
+} = Astro.props;
+
+const v = favicon?.variants;
+const faviconHtml = v
+  ? [
+      v['favicon.ico']
+        ? `<link rel="icon" href="${v['favicon.ico']}" sizes="32x32">`
+        : '',
+      v['favicon-16x16.png']
+        ? `<link rel="icon" type="image/png" sizes="16x16" href="${v['favicon-16x16.png']}">`
+        : '',
+      v['favicon-32x32.png']
+        ? `<link rel="icon" type="image/png" sizes="32x32" href="${v['favicon-32x32.png']}">`
+        : '',
+      v['apple-touch-icon.png']
+        ? `<link rel="apple-touch-icon" sizes="180x180" href="${v['apple-touch-icon.png']}">`
+        : '',
+      v['android-chrome-192x192.png']
+        ? `<link rel="icon" type="image/png" sizes="192x192" href="${v['android-chrome-192x192.png']}">`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n  ')
+  : '';
+
+const ssrParamsQs = Object.keys(ssrUrlParams).length > 0
+  ? '?' + new URLSearchParams(ssrUrlParams).toString()
+  : '';
+const ctaWithParams = funnelCtaUrl ? `${funnelCtaUrl}${ssrParamsQs}` : null;
+
+function buildSsrLinkInjectionScript(params: Record<string, string>): string {
+  const entries = Object.entries(params);
+  if (entries.length === 0) return '';
+
+  const paramsJson = JSON.stringify(params).replace(/</g, '\\u003c');
+
+  return `<script>
+(function(){
+  var p=${paramsJson};
+  var qs=Object.keys(p).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(p[k])}).join('&');
+  if(!qs)return;
+  var links=document.querySelectorAll('a[href]');
+  for(var i=0;i<links.length;i++){
+    try{
+      var h=links[i].getAttribute('href');
+      if(!h||h.charAt(0)==='#'||h.indexOf('mailto:')===0||h.indexOf('tel:')===0||h.indexOf('javascript:')===0)continue;
+      var u=new URL(h,location.origin);
+      if(u.origin!==location.origin)continue;
+      var changed=false;
+      for(var k in p){if(!u.searchParams.has(k)){u.searchParams.set(k,p[k]);changed=true;}}
+      if(changed)links[i].setAttribute('href',u.pathname+u.search+u.hash);
+    }catch(e){}
+  }
+})();
+</script>`;
+}
+
+const linkInjectionHtml = buildSsrLinkInjectionScript(ssrUrlParams);
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{pageTitle}</title>
+  {pageDescription && <meta name="description" content={pageDescription} />}
+  {faviconHtml && <Fragment set:html={faviconHtml} />}
+  {ogImage && <meta property="og:image" content={ogImage} />}
+  <meta property="og:title" content={pageTitle} />
+  {pageDescription && <meta property="og:description" content={pageDescription} />}
+  {includeFontsAndPreconnect && (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </>
+  )}
+  {pageCssContent && <style set:html={pageCssContent}></style>}
+  {pageHeadContent && <Fragment set:html={pageHeadContent} />}
+  {headScriptsHtml && <Fragment set:html={headScriptsHtml} />}
+</head>
+<body>
+  {showDraftBanner && (
+    <div style="position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,#f59e0b,#d97706);color:white;padding:8px 16px;text-align:center;font-size:14px;font-weight:500;z-index:99999;box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+      {draftBannerText}
+    </div>
+  )}
+  {bodyStartScriptsHtml && <Fragment set:html={bodyStartScriptsHtml} />}
+
+  <script define:vars={{
+    tenantId,
+    tenantName: tenantName ?? '',
+    pageId,
+    pageType: pageType ?? null,
+    funnelId,
+    funnelPageType,
+    stepIndex,
+    ctaWithParams,
+    serverGeneratedAnid,
+  }}>
+    window.__AUTONNEL_TENANT_ID__ = tenantId;
+    window.__AUTONNEL_API_BASE__ = '';
+    window.__AUTONNEL_PAGE_ID__ = pageId;
+    window.__AUTONNEL_FUNNEL_ID__ = funnelId || null;
+    window.__AUTONNEL_FUNNEL_PAGE_TYPE__ = funnelPageType || null;
+    window.__AUTONNEL_STEP_INDEX__ = stepIndex || 0;
+    window.__AUTONNEL_PRODUCTS__ = [];
+    if (pageType) window.__AUTONNEL_PAGE_TYPE__ = pageType;
+    window.__FUNNEL_CTA_URL__ = ctaWithParams || null;
+    window.__FUNNEL_NEXT_STEP_URL__ = ctaWithParams || null;
+    window.__AUTONNEL_TENANT_NAME__ = tenantName;
+    window.__AUTONNEL_SITE_NAME__ = tenantName;
+    if (serverGeneratedAnid) {
+      window.__AUTONNEL_SERVER_ANID__ = serverGeneratedAnid;
+    }
+  </script>
+
+  <Tracking />
+
+  <Fragment set:html={rawHtmlContent} />
+  {pageBodyScripts && <Fragment set:html={pageBodyScripts} />}
+  {linkInjectionHtml && <Fragment set:html={linkInjectionHtml} />}
+  {bodyEndScriptsHtml && <Fragment set:html={bodyEndScriptsHtml} />}
+</body>
+</html>

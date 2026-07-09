@@ -1,0 +1,13 @@
+---
+import ErrorLayout from '@/components/layout/ErrorLayout.astro';
+
+Astro.response.status = 500;
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+---
+
+<ErrorLayout
+  status={500}
+  title="Server error"
+  heading="Something went wrong"
+  description="The server hit an unexpected error. The team has been notified. Please try again in a moment."
+/>

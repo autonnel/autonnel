@@ -1,0 +1,437 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import {
+  loadMarketingKpi,
+  loadAdPlatformCards,
+  loadPostbacks,
+  loadBindingGroups,
+} from '@/lib/dashboard/marketing-data';
+import {
+  parseMarketingTab,
+  marketingTabs,
+  platformLabel,
+  platformShort,
+  authModeLabel,
+  accountIdentifier,
+  postbackStatusTone,
+  statusBadgeClasses,
+  truncate,
+  type MarketingTab,
+} from '@/lib/dashboard/marketing-helpers';
+import { formatNumber, relativeTime } from '@/lib/dashboard/overview-helpers';
+import { cn } from '@/lib/utils';
+import { dsSelectClass } from '@/components/primitives/field-styles';
+import Stat from '@/components/primitives/ds/Stat';
+import NewAdsPlatformModal from '@/components/marketing/NewAdsPlatformModal';
+import { getAdsPlatforms } from '@/lib/adapters/ads/platform-registry';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.MARKETING);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const url = new URL(Astro.request.url);
+const tab: MarketingTab = parseMarketingTab(url.searchParams.get('tab'));
+const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+const perPage = 30;
+const statusFilter = url.searchParams.get('status') || '';
+
+const now = new Date();
+
+const kpi = await loadMarketingKpi(now).catch(() => ({
+  connectedPlatforms: 0,
+  conversions24h: 0,
+  pendingPostbacks: 0,
+  failed24h: 0,
+}));
+
+let platforms: Awaited<ReturnType<typeof loadAdPlatformCards>> = [];
+let postbacks: Awaited<ReturnType<typeof loadPostbacks>> = { rows: [], total: 0 };
+let bindings: Awaited<ReturnType<typeof loadBindingGroups>> = [];
+
+if (tab === 'platforms') {
+  platforms = await loadAdPlatformCards().catch(() => []);
+} else if (tab === 'postbacks') {
+  postbacks = await loadPostbacks({ page, perPage, status: statusFilter || undefined }).catch(
+    () => ({ rows: [], total: 0 }),
+  );
+} else if (tab === 'bindings') {
+  bindings = await loadBindingGroups().catch(() => []);
+}
+
+function tabHref(name: MarketingTab): string {
+  return `/marketing?tab=${name}`;
+}
+
+function pageHref(p: number): string {
+  const params = new URLSearchParams(url.searchParams);
+  params.set('tab', tab);
+  params.set('page', String(p));
+  return `/marketing?${params.toString()}`;
+}
+
+const totalPages = Math.max(1, Math.ceil(postbacks.total / perPage));
+const TABS = marketingTabs();
+const POSTBACK_STATUSES = ['PENDING', 'DISPATCHING', 'ACKNOWLEDGED', 'FAILED', 'DEAD', 'SUPPRESSED'];
+
+const adsPlatforms = getAdsPlatforms();
+const adsPlatformNames = adsPlatforms.map((p) => p.label.replace(/\s*\([^)]+\)/, ''));
+const emptyStateHint = adsPlatformNames.length <= 1
+  ? `Connect ${adsPlatformNames[0] ?? 'an ad platform'} to send offline conversion events.`
+  : `Connect ${adsPlatformNames.slice(0, -1).join(', ')}, or ${adsPlatformNames[adsPlatformNames.length - 1]} to send offline conversion events.`;
+---
+
+<DashboardLayout
+  title="Marketing"
+  activeNav="marketing"
+>
+  <div slot="header-actions" class="flex items-center gap-2">
+    <button
+      type="button"
+      data-autonnel-ads-new
+      class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937]"
+    >
+      + Connect platform
+    </button>
+  </div>
+
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Stat client:load label="Connected platforms" value={formatNumber(kpi.connectedPlatforms)} />
+        <Stat client:load label="Conversions (24h)" value={formatNumber(kpi.conversions24h)} />
+        <Stat client:load label="Pending postbacks" value={formatNumber(kpi.pendingPostbacks)} />
+        <Stat client:load label="Failed (24h)" value={formatNumber(kpi.failed24h)} />
+      </div>
+    </div>
+
+    <div class="col-span-12 -mb-2">
+      <div class="border-b border-ds-line">
+        <nav class="flex items-center gap-1" aria-label="Marketing sections">
+          {TABS.map((t) => (
+            <a
+              href={tabHref(t.id)}
+              class={tab === t.id
+                ? 'inline-flex items-center px-3 py-2.5 text-[13px] font-medium text-ds-ink border-b-2 border-ds-ink no-underline'
+                : 'inline-flex items-center px-3 py-2.5 text-[13px] font-medium text-ds-muted hover:text-ds-ink border-b-2 border-transparent no-underline'}
+            >
+              {t.label}
+            </a>
+          ))}
+        </nav>
+      </div>
+    </div>
+
+    {tab === 'platforms' && (
+      <div class="col-span-12">
+        {platforms.length === 0 ? (
+          <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-16 flex flex-col items-center text-center gap-3">
+            <div class="w-12 h-12 rounded-full bg-ds-surface2 border border-ds-line flex items-center justify-center">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6 text-ds-muted">
+                <path d="M3 11v3a4 4 0 0 0 4 4h3l5 4V3l-5 4H7a4 4 0 0 0-4 4z" />
+              </svg>
+            </div>
+            <div class="text-[14px] font-semibold text-ds-ink">No ad platforms connected</div>
+            <div class="text-[12.5px] text-ds-muted max-w-[320px]">
+              {emptyStateHint}
+            </div>
+            <button
+              type="button"
+              data-autonnel-ads-new
+              class="mt-2 inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937]"
+            >
+              + Connect platform
+            </button>
+          </div>
+        ) : (
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {platforms.map((p) => {
+              const lastTone = postbackStatusTone(p.lastPostbackStatus);
+              const activeTone = p.isActive ? 'ok' : 'muted';
+              return (
+                <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] flex flex-col">
+                  <div class="px-5 pt-4 pb-3 border-b border-ds-line">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-md bg-ds-surface2 border border-ds-line flex items-center justify-center text-[12px] font-semibold text-ds-slate font-ds-mono shrink-0">
+                          {platformShort(p.platform)}
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-[13.5px] font-semibold text-ds-ink truncate">{p.name}</div>
+                          <div class="text-[11.5px] text-ds-muted truncate">{platformLabel(p.platform)}</div>
+                        </div>
+                      </div>
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${statusBadgeClasses(activeTone)}`}>
+                        {p.isActive ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="px-5 py-3 grid grid-cols-2 gap-3 border-b border-ds-line">
+                    <div class="min-w-0">
+                      <div class="text-[10.5px] uppercase tracking-[0.06em] text-ds-faint font-medium">Account</div>
+                      <div class="text-[12.5px] text-ds-ink font-ds-mono tabular truncate mt-0.5" title={accountIdentifier(p.credentials)}>
+                        {accountIdentifier(p.credentials)}
+                      </div>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-[10.5px] uppercase tracking-[0.06em] text-ds-faint font-medium">Auth mode</div>
+                      <div class="text-[12.5px] text-ds-ink mt-0.5">
+                        <span class="inline-flex items-center gap-1.5 rounded-[6px] border px-1.5 py-[1px] text-[11.5px] font-medium leading-tight bg-ds-surface2 border-ds-line text-ds-slate">
+                          {authModeLabel(p.credentials)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="px-5 py-3 grid grid-cols-3 gap-3 border-b border-ds-line">
+                    <div>
+                      <div class="text-[10.5px] uppercase tracking-[0.06em] text-ds-faint font-medium">Bindings</div>
+                      <div class="text-[16px] font-semibold text-ds-ink font-ds-mono tabular mt-0.5">{p.bindingCount}</div>
+                    </div>
+                    <div>
+                      <div class="text-[10.5px] uppercase tracking-[0.06em] text-ds-faint font-medium">Postbacks</div>
+                      <div class="text-[16px] font-semibold text-ds-ink font-ds-mono tabular mt-0.5">{formatNumber(p.postbackCount)}</div>
+                    </div>
+                    <div>
+                      <div class="text-[10.5px] uppercase tracking-[0.06em] text-ds-faint font-medium">Last</div>
+                      <div class="text-[12.5px] mt-0.5">
+                        {p.lastPostbackStatus ? (
+                          <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${statusBadgeClasses(lastTone)}`}>
+                            {p.lastPostbackStatus}
+                          </span>
+                        ) : (
+                          <span class="text-ds-faint text-[12px]">—</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="px-5 py-3 flex items-center justify-between mt-auto">
+                    <div class="text-[11.5px] text-ds-muted font-ds-mono tabular truncate">
+                      {p.lastPostbackAt ? `Last ${relativeTime(p.lastPostbackAt, now)}` : 'No postbacks yet'}
+                    </div>
+                    <a
+                      href={`/marketing/${p.id}`}
+                      class="inline-flex items-center justify-center font-medium rounded-[6px] h-7 px-3 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+                    >
+                      Manage
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    )}
+
+    {tab === 'postbacks' && (
+      <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold text-ds-ink">Conversion postbacks</div>
+            <div class="text-[12.5px] text-ds-muted mt-0.5">
+              <span class="font-ds-mono tabular">{postbacks.total}</span> matching · showing
+              <span class="font-ds-mono tabular"> {postbacks.rows.length}</span>
+            </div>
+          </div>
+          <form method="get" action="/marketing" class="flex items-center gap-2 shrink-0 flex-wrap">
+            <input type="hidden" name="tab" value="postbacks" />
+            <select
+              name="status"
+              class={cn(dsSelectClass, "h-8 w-auto")}
+            >
+              <option value="">All status</option>
+              {POSTBACK_STATUSES.map((s) => (
+                <option value={s} selected={statusFilter === s}>{s}</option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB]"
+            >
+              Filter
+            </button>
+          </form>
+        </div>
+
+        {postbacks.rows.length === 0 ? (
+          <div class="px-6 py-16 text-center text-[13px] text-ds-muted">
+            No postbacks recorded.
+          </div>
+        ) : (
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse">
+              <thead class="bg-ds-surface2 border-b border-ds-line">
+                <tr>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Status</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Platform</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Order</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Event</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Attempts</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Last error</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {postbacks.rows.map((r) => (
+                  <tr class="hover:bg-ds-surface2 transition-colors">
+                    <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${statusBadgeClasses(postbackStatusTone(r.status))}`}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                      <a
+                        href={`/marketing/${r.platformId}`}
+                        class="text-ds-accent no-underline hover:underline"
+                      >
+                        {r.platformName}
+                      </a>
+                      <div class="text-[11.5px] text-ds-muted truncate max-w-[180px]">
+                        {platformLabel(r.platformType)}
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                      {r.orderId && r.orderNumber ? (
+                        <a
+                          href={`/orders/${r.orderId}`}
+                          class="text-ds-accent font-ds-mono tabular no-underline hover:underline"
+                        >
+                          {r.orderNumber}
+                        </a>
+                      ) : (
+                        <span class="text-ds-faint">—</span>
+                      )}
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">
+                      <div class="font-ds-mono tabular text-[12.5px] truncate max-w-[200px]" title={r.eventName}>
+                        {r.eventName}
+                      </div>
+                      {r.internalEvent && (
+                        <div class="text-[11.5px] text-ds-muted truncate max-w-[200px]">
+                          {r.internalEvent}
+                        </div>
+                      )}
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">
+                      {r.attempts}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-slate border-b border-[#F3F4F6]">
+                      {r.errorMessage ? (
+                        <div class="truncate max-w-[260px]" title={r.errorMessage}>
+                          {truncate(r.errorMessage, 80)}
+                        </div>
+                      ) : (
+                        <span class="text-ds-faint">—</span>
+                      )}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] text-right font-ds-mono tabular whitespace-nowrap">
+                      {relativeTime(r.createdAt, now)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div class="px-6 py-3 flex items-center justify-between border-t border-ds-line bg-ds-surface2 text-[12px] text-ds-muted">
+            <div>
+              Page <span class="font-ds-mono tabular">{page}</span> of <span class="font-ds-mono tabular">{totalPages}</span>
+            </div>
+            <div class="flex items-center gap-1">
+              {page > 1 ? (
+                <a href={pageHref(page - 1)} class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">Prev</a>
+              ) : (
+                <span class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-faint">Prev</span>
+              )}
+              {page < totalPages ? (
+                <a href={pageHref(page + 1)} class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">Next</a>
+              ) : (
+                <span class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-faint">Next</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {tab === 'bindings' && (
+      <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4">
+          <div class="text-[14px] font-semibold text-ds-ink">Funnel bindings</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            Read-only summary. Click a funnel to manage its bindings on the funnel detail page.
+          </div>
+        </div>
+
+        {bindings.length === 0 ? (
+          <div class="px-6 py-16 text-center text-[13px] text-ds-muted">
+            No funnels are bound to any ad platform yet.
+          </div>
+        ) : (
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse">
+              <thead class="bg-ds-surface2 border-b border-ds-line">
+                <tr>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Funnel</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Bound platforms</th>
+                  <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bindings.map((g) => (
+                  <tr class="hover:bg-ds-surface2 transition-colors">
+                    <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                      <a
+                        href={`/funnel/${g.funnelId}/marketing`}
+                        class="text-[13.5px] text-ds-ink no-underline hover:text-ds-accent"
+                      >
+                        {g.funnelName}
+                      </a>
+                    </td>
+                    <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        {g.platforms.map((p) => (
+                          <a
+                            href={`/marketing/${p.id}`}
+                            class="inline-flex items-center gap-1.5 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-none bg-ds-surface2 border-ds-line text-ds-slate no-underline hover:bg-ds-card"
+                          >
+                            <span class="font-ds-mono">{platformShort(p.platform)}</span>
+                            <span class="truncate max-w-[120px]">{p.platformName}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">
+                      {g.platforms.length}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+  <NewAdsPlatformModal client:load platforms={adsPlatforms} />
+  <script is:inline>
+    document.addEventListener('click', function (e) {
+      const trigger = e.target instanceof Element ? e.target.closest('[data-autonnel-ads-new]') : null;
+      if (!trigger) return;
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('autonnel:ads-new-open'));
+    });
+  </script>
+</DashboardLayout>

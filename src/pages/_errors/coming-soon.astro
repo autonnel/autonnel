@@ -1,0 +1,24 @@
+---
+import ErrorLayout from '@/components/layout/ErrorLayout.astro';
+import { getBrandingName } from '@/lib/config/keys';
+
+let name: string | null = null;
+try {
+  name = (await getBrandingName()) ?? null;
+} catch {
+  name = null;
+}
+
+Astro.response.status = 200;
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+const heading = name ? `${name} is coming soon` : 'Coming soon';
+const title = name ? `${name} - Coming soon` : 'Coming soon';
+---
+
+<ErrorLayout
+  status={200}
+  title={title}
+  heading={heading}
+  description="This storefront does not have any published pages yet. Check back shortly."
+/>

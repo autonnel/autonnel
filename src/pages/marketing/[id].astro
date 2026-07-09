@@ -1,0 +1,57 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import AdPlatformDetail from '@/components/AdPlatformDetail';
+import { checkAuth } from '@/lib/auth/middleware';
+import { FEATURES, userHasFeature } from '@/lib/rbac';
+import { loadAdPlatformDetail } from '@/lib/dashboard/marketing-data';
+import { platformLabel } from '@/lib/dashboard/marketing-helpers';
+
+const session = await checkAuth(Astro);
+const viewer = session.user;
+if (!session.authenticated || !viewer) {
+  return Astro.redirect('/login');
+}
+
+if (!(await userHasFeature(viewer.id, FEATURES.MARKETING))) {
+  return Astro.redirect('/');
+}
+
+const { id } = Astro.params;
+const record = id ? await loadAdPlatformDetail(id) : null;
+if (!record) {
+  return Astro.redirect('/marketing');
+}
+
+const toBinding = (b: (typeof record.bindings)[number]) => ({
+  id: b.id,
+  funnel: { id: b.funnelId, name: b.funnelName, slug: '' },
+});
+
+const adPlatform: any = {
+  id: record.id,
+  name: record.name,
+  platform: record.platform,
+  credentials: record.credentials,
+  isActive: record.isActive,
+  createdAt: record.createdAt.toISOString(),
+  funnelBindings: record.bindings.map(toBinding),
+  _count: { postbacks: record.postbackTotal },
+};
+
+const trail = [
+  { label: 'Autonnel', href: '/' },
+  { label: 'Marketing', href: '/marketing' },
+  { label: platformLabel(adPlatform.platform) },
+];
+---
+
+<DashboardLayout title={adPlatform.name} activeNav="marketing" breadcrumbs={trail}>
+  <section
+    class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] overflow-hidden"
+  >
+    <AdPlatformDetail
+      client:load
+      platform={adPlatform}
+    />
+  </section>
+</DashboardLayout>

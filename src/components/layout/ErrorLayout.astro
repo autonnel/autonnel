@@ -1,0 +1,131 @@
+---
+
+interface Props {
+  status: number;
+  title: string;
+  heading: string;
+  description: string;
+  detail?: string;
+  detailLabel?: string;
+}
+
+const { status, title, heading, description, detail, detailLabel } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;}
+    html,body{margin:0;padding:0;}
+    body{
+      min-height:100vh;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+      background:#F7F7F8;
+      color:#111827;
+      -webkit-font-smoothing:antialiased;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+    .card{
+      width:100%;
+      max-width:480px;
+      background:#FFFFFF;
+      border:1px solid #E5E7EB;
+      border-radius:10px;
+      box-shadow:0 1px 2px rgba(17,24,39,.04);
+      padding:28px;
+    }
+    .status{
+      font-family:'JetBrains Mono',ui-monospace,monospace;
+      font-size:11.5px;
+      color:#6B7280;
+      letter-spacing:0.04em;
+    }
+    h1{
+      font-size:20px;
+      font-weight:600;
+      letter-spacing:-0.01em;
+      margin:8px 0 8px;
+      color:#111827;
+    }
+    p{
+      font-size:13.5px;
+      line-height:1.6;
+      color:#4B5563;
+      margin:0;
+    }
+    .detail{
+      margin-top:16px;
+      padding:12px 14px;
+      border:1px solid #E5E7EB;
+      border-radius:8px;
+      background:#FAFAFB;
+      font-family:'JetBrains Mono',ui-monospace,monospace;
+      font-size:12.5px;
+      color:#4B5563;
+      word-break:break-all;
+    }
+    .detail-label{
+      font-family:Inter,system-ui,sans-serif;
+      font-size:11.5px;
+      text-transform:uppercase;
+      letter-spacing:0.04em;
+      color:#6B7280;
+      margin-bottom:6px;
+    }
+    .actions{
+      margin-top:24px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    :global(.actions a){
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      height:36px;
+      padding:0 14px;
+      border-radius:7px;
+      font-size:13px;
+      font-weight:500;
+      text-decoration:none;
+    }
+    :global(.actions .btn-primary){
+      background:#111827;
+      color:#FFFFFF;
+      border:1px solid #111827;
+    }
+    :global(.actions .btn-secondary){
+      background:#FFFFFF;
+      color:#111827;
+      border:1px solid #E5E7EB;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="status">STATUS {status}</span>
+    <h1>{heading}</h1>
+    <p>{description}</p>
+    {detail && (
+      <div class="detail">
+        {detailLabel && <div class="detail-label">{detailLabel}</div>}
+        {detail}
+      </div>
+    )}
+    <div class="actions"><slot /></div>
+  </div>
+</body>
+</html>

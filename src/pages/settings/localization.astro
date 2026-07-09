@@ -1,0 +1,33 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import LocalizationPanel from '@/components/settings/LocalizationPanel';
+import { getSiteTimezone } from '@/lib/config/keys';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_LOCALIZATION)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const timezone = await getSiteTimezone().catch(() => undefined);
+
+const initial = {
+  timezone: timezone ?? '',
+};
+---
+
+<DashboardLayout
+  title="Localization"
+  activeNav="settings.localization"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <LocalizationPanel client:load initial={initial} />
+  </div>
+</DashboardLayout>

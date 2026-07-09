@@ -1,0 +1,9 @@
+---
+import { checkAuth } from '@/lib/auth/middleware';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated) {
+  return Astro.redirect('/login');
+}
+return Astro.redirect('/overview');
+---

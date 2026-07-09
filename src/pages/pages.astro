@@ -1,0 +1,252 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { makeAuthoring } from '@/composition/make-authoring';
+import { authoringDepsFromLocals } from '@/composition/authoring-runtime';
+import CreatePageButton from '@/components/CreatePageButton';
+import DeletePageButton from '@/components/DeletePageButton';
+import { cn } from '@/lib/utils';
+import { dsFieldClass, dsSelectClass } from '@/components/primitives/field-styles';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PAGES);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+const canCreatePage = await userHasFeature(auth.user.id, FEATURES.PAGES_CREATE);
+const canDeletePage = await userHasFeature(auth.user.id, FEATURES.PAGES_DELETE);
+
+const url = new URL(Astro.request.url);
+const search = (url.searchParams.get('q') || '').trim();
+const filterType = (url.searchParams.get('type') || '').toUpperCase();
+const filterStatus = (url.searchParams.get('status') || '').toUpperCase();
+const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+const perPage = 20;
+
+const PAGE_TYPES = ['CHECKOUT', 'THANKYOU', 'UPSELL', 'ERROR', 'CUSTOM'];
+const PAGE_STATUSES = ['DRAFT', 'PUBLISHED'];
+
+let items: Array<{
+  id: string;
+  name: string;
+  slug: string;
+  type: string;
+  status: string;
+  editorType: string;
+  updatedAt: Date;
+  createdAt: Date;
+}> = [];
+let total = 0;
+let totalPages = 1;
+let safePage = page;
+const funnelBindings = new Map<string, Array<{ funnelId: string; funnelName: string }>>();
+try {
+  const authoring = makeAuthoring(authoringDepsFromLocals(Astro.locals));
+  const result = await authoring.pageDashboard.list({
+    search: search || undefined,
+    type: filterType && PAGE_TYPES.includes(filterType) ? filterType : undefined,
+    status: filterStatus && PAGE_STATUSES.includes(filterStatus) ? filterStatus : undefined,
+    page,
+    perPage,
+  });
+  items = result.items;
+  total = result.total;
+  totalPages = result.totalPages;
+  safePage = result.page;
+  for (const b of result.bindings) {
+    const arr = funnelBindings.get(b.pageId) || [];
+    arr.push({ funnelId: b.funnelId, funnelName: b.funnelName });
+    funnelBindings.set(b.pageId, arr);
+  }
+} catch {
+  items = [];
+}
+
+function statusTone(status: string): 'ok' | 'warn' | 'muted' {
+  if (status === 'PUBLISHED') return 'ok';
+  return 'muted';
+}
+
+function statusBadge(tone: 'ok' | 'warn' | 'muted'): string {
+  if (tone === 'ok') return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+  if (tone === 'warn') return 'bg-ds-warnBg border-ds-warnBorder text-ds-warnText';
+  return 'bg-ds-surface2 border-ds-line text-ds-muted';
+}
+
+function pageHref(p: number): string {
+  const params = new URLSearchParams(url.searchParams);
+  params.set('page', String(p));
+  return `/pages?${params.toString()}`;
+}
+
+function chipHref(key: 'type' | 'status', value: string): string {
+  const params = new URLSearchParams(url.searchParams);
+  if (value) params.set(key, value);
+  else params.delete(key);
+  params.delete('page');
+  return `/pages?${params.toString()}`;
+}
+
+function editorLabel(editorType: string): string {
+  return editorType === 'HTML' ? 'HTML' : 'Component';
+}
+---
+
+<DashboardLayout
+  title="Pages"
+  activeNav="funnels.pages"
+>
+  {canCreatePage && (
+    <CreatePageButton client:load slot="header-actions" />
+  )}
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">All pages</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{total}</span> total · showing
+            <span class="font-ds-mono tabular"> {items.length}</span>
+          </div>
+        </div>
+        <form method="get" action="/pages" class="flex items-center gap-2 shrink-0 flex-wrap">
+          <input
+            type="text"
+            name="q"
+            value={search}
+            placeholder="Search by name or slug…"
+            class={cn(dsFieldClass, "h-8 w-[220px]")}
+          />
+          <select
+            name="type"
+            class={cn(dsSelectClass, "h-8 w-auto")}
+          >
+            <option value="">All types</option>
+            {PAGE_TYPES.map((t) => (
+              <option value={t} selected={filterType === t}>{t}</option>
+            ))}
+          </select>
+          <select
+            name="status"
+            class={cn(dsSelectClass, "h-8 w-auto")}
+          >
+            <option value="">All status</option>
+            {PAGE_STATUSES.map((s) => (
+              <option value={s} selected={filterStatus === s}>{s}</option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB]"
+          >
+            Filter
+          </button>
+        </form>
+      </div>
+
+      {items.length === 0 ? (
+        <div class="px-6 py-16 text-center text-[13px] text-ds-muted">
+          No pages match these filters.
+        </div>
+      ) : (
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Title</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Slug</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Type</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Funnel</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Status</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Updated</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((p) => {
+                const tone = statusTone(p.status);
+                const bindings = funnelBindings.get(p.id) || [];
+                return (
+                  <tr class="hover:bg-ds-surface2 transition-colors">
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">
+                      <a href={`/page/${p.id}`} class="text-ds-ink no-underline hover:text-ds-accent font-medium">
+                        {p.name}
+                      </a>
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] font-ds-mono tabular truncate max-w-[200px]">
+                      /{p.slug}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-slate border-b border-[#F3F4F6] font-ds-mono">
+                      {editorLabel(p.editorType)} · {p.type}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-slate border-b border-[#F3F4F6]">
+                      {bindings.length === 0 ? (
+                        <span class="text-ds-faint">—</span>
+                      ) : (
+                        <div class="flex flex-col gap-0.5">
+                          {bindings.slice(0, 2).map((b) => (
+                            <a href={`/funnel/${b.funnelId}`} class="text-ds-accent no-underline hover:underline truncate max-w-[180px]">
+                              {b.funnelName}
+                            </a>
+                          ))}
+                          {bindings.length > 2 && (
+                            <span class="text-[11px] text-ds-muted">+{bindings.length - 2} more</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${statusBadge(tone)}`}>
+                        {p.status}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] text-right font-ds-mono tabular whitespace-nowrap">
+                      {new Date(p.updatedAt).toLocaleDateString()}
+                    </td>
+                    <td class="px-4 py-3 border-b border-[#F3F4F6] text-right">
+                      <div class="inline-flex gap-1.5">
+                        <a
+                          href={`/page/${p.id}`}
+                          class="inline-flex items-center justify-center font-medium rounded-[6px] h-7 px-2.5 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+                        >
+                          Edit
+                        </a>
+                        {canDeletePage && (
+                          <DeletePageButton client:load pageId={p.id} pageName={p.name} />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div class="px-6 py-3 flex items-center justify-between border-t border-ds-line bg-ds-surface2 text-[12px] text-ds-muted">
+          <div>
+            Page <span class="font-ds-mono tabular">{safePage}</span> of <span class="font-ds-mono tabular">{totalPages}</span>
+          </div>
+          <div class="flex items-center gap-1">
+            {safePage > 1 ? (
+              <a href={pageHref(safePage - 1)} class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">Prev</a>
+            ) : (
+              <span class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-faint">Prev</span>
+            )}
+            {safePage < totalPages ? (
+              <a href={pageHref(safePage + 1)} class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">Next</a>
+            ) : (
+              <span class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-faint">Next</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+</DashboardLayout>

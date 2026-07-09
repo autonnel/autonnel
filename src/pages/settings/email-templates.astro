@@ -1,0 +1,61 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import EmailTemplatesPanel from '@/components/settings/EmailTemplatesPanel';
+import { getDefaultTemplate } from '@/lib/email-templates/default-templates';
+
+type EmailTemplateType =
+  | 'ORDER_RECEIPT'
+  | 'ORDER_SHIPPED'
+  | 'ORDER_DELIVERED'
+  | 'ORDER_REFUNDED'
+  | 'RECALL_1'
+  | 'RECALL_2'
+  | 'RECALL_3';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_EMAIL)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const VALID_TYPES: EmailTemplateType[] = [
+  'ORDER_RECEIPT',
+  'ORDER_SHIPPED',
+  'ORDER_DELIVERED',
+  'ORDER_REFUNDED',
+  'RECALL_1',
+  'RECALL_2',
+  'RECALL_3',
+];
+
+const lang = 'en';
+
+const initialTemplates = await Promise.all(
+  VALID_TYPES.map(async (type) => {
+    const def = await getDefaultTemplate(type as never, lang);
+    return {
+      type,
+      name: def.name,
+      subject: def.subject,
+      isCustomized: false,
+      isActive: true,
+    };
+  }),
+);
+---
+
+<DashboardLayout
+  title="Email Templates"
+  activeNav="settings.email-templates"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <EmailTemplatesPanel initialTemplates={initialTemplates} />
+  </div>
+</DashboardLayout>

@@ -1,0 +1,81 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { FunnelCustomCode } from '@/components/funnel';
+import { loadFunnelHeader, loadFunnelScripts } from '@/lib/dashboard/funnel-dashboard-loader';
+
+const auth = await checkAuth(Astro);
+
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.FUNNELS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const { funnelId } = Astro.params;
+
+const header = await loadFunnelHeader(funnelId!);
+if (!header) {
+  return new Response('Funnel not found', { status: 404 });
+}
+
+const funnel = header.funnel;
+const scripts = await loadFunnelScripts(funnelId!);
+const viewUrl = header.viewUrl;
+
+const tabs = [
+  { id: 'overview', label: 'Overview', href: `/funnel/${funnelId}` },
+  { id: 'pages', label: 'Pages', href: `/funnel/${funnelId}/pages` },
+  { id: 'analytics', label: 'Analytics', href: `/funnel/${funnelId}/analytics` },
+  { id: 'marketing', label: 'Marketing', href: `/funnel/${funnelId}/marketing` },
+  { id: 'experiment', label: 'Experiment', href: `/funnel/${funnelId}/experiment` },
+  { id: 'custom-code', label: 'Custom Code', href: `/funnel/${funnelId}/custom-code` },
+  { id: 'settings', label: 'Settings', href: `/funnel/${funnelId}/settings` },
+];
+const activeTab = 'custom-code';
+---
+
+<DashboardLayout
+  title={funnel.name}
+  activeNav="funnels.funnels"
+  breadcrumbs={[
+    { label: 'Autonnel', href: '/' },
+    { label: 'Funnels', href: '/funnels' },
+    { label: funnel.name, href: `/funnel/${funnelId}` },
+    { label: 'Custom Code' },
+  ]}
+>
+  {viewUrl && (
+    <a
+      slot="header-actions"
+      href={viewUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+    >
+      View
+    </a>
+  )}
+
+  <div class="-mt-2 mb-5 border-b border-ds-line">
+    <nav class="flex items-center gap-1 overflow-x-auto" aria-label="Funnel sections">
+      {tabs.map((t) => {
+        const active = t.id === activeTab;
+        const cls = active
+          ? 'inline-flex items-center px-3 py-2.5 text-[13px] font-medium text-ds-ink border-b-2 border-ds-ink no-underline'
+          : 'inline-flex items-center px-3 py-2.5 text-[13px] font-medium text-ds-muted hover:text-ds-ink border-b-2 border-transparent no-underline';
+        return (
+          <a href={t.href} class={cls}>
+            {t.label}
+          </a>
+        );
+      })}
+    </nav>
+  </div>
+
+  <FunnelCustomCode client:load funnelId={funnel.id} initialScripts={scripts} />
+</DashboardLayout>

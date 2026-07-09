@@ -1,0 +1,70 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import EmailConfigPanel from '@/components/settings/EmailConfigPanel';
+import { getEmailKvConfigWithCredentials } from '@/lib/config/email';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_EMAIL)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const fullConfig = await getEmailKvConfigWithCredentials().catch(() => null);
+
+let initial: {
+  hasConfig: boolean;
+  provider: 'SMTP' | 'RESEND';
+  fromEmail: string;
+  fromName: string;
+  replyTo: string;
+  isActive: boolean;
+  smtpCreds: { host: string; port: number; username: string; secure: boolean };
+};
+
+if (fullConfig) {
+  const creds = fullConfig.credentials as unknown as Record<string, unknown>;
+  initial = {
+    hasConfig: true,
+    provider: fullConfig.provider,
+    fromEmail: fullConfig.fromEmail || '',
+    fromName: fullConfig.fromName || '',
+    replyTo: fullConfig.replyTo || '',
+    isActive: fullConfig.isActive ?? true,
+    smtpCreds:
+      fullConfig.provider === 'SMTP'
+        ? {
+            host: typeof creds.host === 'string' ? creds.host : '',
+            port: typeof creds.port === 'number' ? creds.port : 587,
+            username: typeof creds.username === 'string' ? creds.username : '',
+            secure: typeof creds.secure === 'boolean' ? creds.secure : false,
+          }
+        : { host: '', port: 587, username: '', secure: false },
+  };
+} else {
+  initial = {
+    hasConfig: false,
+    provider: 'SMTP',
+    fromEmail: '',
+    fromName: '',
+    replyTo: '',
+    isActive: true,
+    smtpCreds: { host: '', port: 587, username: '', secure: false },
+  };
+}
+---
+
+<DashboardLayout
+  title="Email Provider"
+  activeNav="settings.email"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <EmailConfigPanel client:load initial={initial} />
+  </div>
+</DashboardLayout>

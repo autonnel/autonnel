@@ -1,0 +1,64 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { Card as DsCard, Button as DsButton } from '@/components/primitives/ds';
+import AiConversionAnalysisPanel, { type AiConversionAnalysisInitial } from '@/components/settings/AiConversionAnalysisPanel';
+import {
+  getConversionAnalysisPrompt,
+  getConversionAnalysisFrequencyMinutes,
+  getLastConversionAnalysisResult,
+} from '@/lib/config/keys';
+import { getLlmModel } from '@/lib/config/llm-models';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_AI_CONVERSION_ANALYSIS)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const textModel = await getLlmModel('text').catch(() => undefined);
+const llmConfigured = !!textModel;
+
+let initial: AiConversionAnalysisInitial | null = null;
+
+if (llmConfigured) {
+  const [prompt, freq, lastResult] = await Promise.all([
+    getConversionAnalysisPrompt().catch(() => undefined),
+    getConversionAnalysisFrequencyMinutes().catch(() => undefined),
+    getLastConversionAnalysisResult().catch(() => undefined),
+  ]);
+  const frequencyMinutes = typeof freq === 'number' && Number.isFinite(freq) ? freq : 120;
+  initial = {
+    prompt: typeof prompt === 'string' ? prompt : '',
+    frequencyMinutes,
+    lastResult: lastResult ?? null,
+    hasConfig: typeof freq === 'number' && Number.isFinite(freq),
+  };
+}
+---
+
+<DashboardLayout title="AI Conversion Analysis" activeNav="settings.ai-conversion-analysis">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    {llmConfigured && initial ? (
+      <AiConversionAnalysisPanel client:load initial={initial} />
+    ) : (
+      <div class="flex flex-col gap-3">
+        <div class="text-[13px] font-semibold text-ds-ink">AI Conversion Analysis requires an LLM model</div>
+        <div class="text-[12.5px] text-ds-muted">
+          Go to <strong>Settings → LLM</strong> to add a text model. Once configured, this page lets you adjust the analysis prompt and cadence.
+        </div>
+        <div>
+          <a href="/settings/llm" class="inline-block">
+            <DsButton variant="primary">Open LLM settings</DsButton>
+          </a>
+        </div>
+      </div>
+    )}
+  </div>
+</DashboardLayout>

@@ -1,0 +1,36 @@
+---
+import type { FaviconVariants } from '@/lib/storefront/favicon';
+import { buildFaviconHtml } from '@/lib/storefront/favicon';
+import StorefrontHeadLinks from './StorefrontHeadLinks.astro';
+
+interface Props {
+  pageTitle: string;
+  pageDescription?: string;
+  meta?: { ogImage?: string };
+  pageHeadContent?: string;
+  headScripts?: Array<{ content: string }>;
+  favicon?: { source: string; variants: FaviconVariants } | null;
+}
+
+const {
+  pageTitle,
+  pageDescription = '',
+  meta = {},
+  pageHeadContent = '',
+  headScripts = [],
+  favicon = null,
+} = Astro.props;
+
+const faviconHtml = buildFaviconHtml(favicon);
+---
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{pageTitle}</title>
+{pageDescription && <meta name="description" content={pageDescription}>}
+{faviconHtml && <Fragment set:html={faviconHtml} />}
+{meta.ogImage && <meta property="og:image" content={meta.ogImage}>}
+<meta property="og:title" content={pageTitle}>
+{pageDescription && <meta property="og:description" content={pageDescription}>}
+<StorefrontHeadLinks />
+{pageHeadContent && <Fragment set:html={pageHeadContent} />}
+{headScripts.map(script => <Fragment set:html={script.content} />)}

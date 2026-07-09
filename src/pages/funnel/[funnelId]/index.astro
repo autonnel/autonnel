@@ -1,0 +1,257 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { loadFunnelOverviewData } from '@/lib/dashboard/funnels-data';
+import { formatHms } from '@/lib/dashboard/overview-helpers';
+import Stat from '@/components/primitives/ds/Stat';
+import { FunnelCheckoutBanner } from '@/components/funnel';
+import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.FUNNELS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const { funnelId } = Astro.params;
+const now = new Date();
+
+let data: Awaited<ReturnType<typeof loadFunnelOverviewData>> = null;
+try {
+  data = await loadFunnelOverviewData(funnelId!, now);
+} catch {
+  data = null;
+}
+if (!data) {
+  return new Response('Funnel not found', { status: 404 });
+}
+
+const db = getTenantPrisma();
+let funnelHasCheckoutStep = true;
+try {
+  const funnelRow = await db.funnel.findFirst({ where: { id: funnelId! }, select: { steps: true } });
+  const steps = Array.isArray(funnelRow?.steps)
+    ? (funnelRow!.steps as Array<{ pageId?: string }>)
+    : [];
+  const pageIds = steps.map((s) => s?.pageId).filter((id): id is string => Boolean(id));
+  if (pageIds.length === 0) {
+    funnelHasCheckoutStep = false;
+  } else {
+    const checkoutCount = await db.page.count({
+      where: { id: { in: pageIds }, type: { in: ['CHECKOUT', 'checkout'] } },
+    });
+    funnelHasCheckoutStep = checkoutCount > 0;
+  }
+} catch {
+  funnelHasCheckoutStep = true;
+}
+
+const tabs = [
+  { id: 'overview', label: 'Overview', href: `/funnel/${funnelId}` },
+  { id: 'pages', label: 'Pages', href: `/funnel/${funnelId}/pages` },
+  { id: 'analytics', label: 'Analytics', href: `/funnel/${funnelId}/analytics` },
+  { id: 'marketing', label: 'Marketing', href: `/funnel/${funnelId}/marketing` },
+  { id: 'experiment', label: 'Experiment', href: `/funnel/${funnelId}/experiment` },
+  { id: 'custom-code', label: 'Custom Code', href: `/funnel/${funnelId}/custom-code` },
+  { id: 'settings', label: 'Settings', href: `/funnel/${funnelId}/settings` },
+];
+const activeTab = 'overview';
+
+function tokenColor(tone: 'ok' | 'bad' | 'muted' | 'highlight'): string {
+  if (tone === 'ok') return '#A7F3D0';
+  if (tone === 'bad') return '#FCA5A5';
+  if (tone === 'muted') return '#9CA3AF';
+  return '#E5E7EB';
+}
+
+const diagram = data.diagram;
+---
+
+<DashboardLayout
+  title={data.funnel.name}
+  activeNav="funnels"
+  breadcrumbs={[
+    { label: 'Autonnel', href: '/' },
+    { label: 'Funnels', href: '/funnels' },
+    { label: data.funnel.name },
+  ]}
+>
+  {data.viewUrl && (
+    <a
+      slot="header-actions"
+      href={data.viewUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+    >
+      View funnel
+    </a>
+  )}
+
+  {!funnelHasCheckoutStep && (
+    <FunnelCheckoutBanner hasCheckoutStep={funnelHasCheckoutStep} />
+  )}
+
+  <div class="-mt-2 mb-5 border-b border-ds-line">
+    <nav class="flex items-center gap-1 overflow-x-auto" aria-label="Funnel sections">
+      {tabs.map((t) => {
+        const active = t.id === activeTab;
+        const cls = active
+          ? 'inline-flex items-center px-3 py-2.5 text-[13px] font-medium text-ds-ink border-b-2 border-ds-ink no-underline'
+          : 'inline-flex items-center px-3 py-2.5 text-[13px] font-medium text-ds-muted hover:text-ds-ink border-b-2 border-transparent no-underline';
+        return (
+          <a href={t.href} class={cls}>
+            {t.label}
+          </a>
+        );
+      })}
+    </nav>
+  </div>
+
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Stat
+          client:load
+          label="Total visits (24h)"
+          value={data.metrics.visits.value}
+          delta={{ ...data.metrics.visits.delta, context: 'vs prev 24h' }}
+          sparkline={data.metrics.visits.sparkline}
+          sparklineColor="#2563EB"
+        />
+        <Stat
+          client:load
+          label="Conversion rate (24h)"
+          value={data.metrics.conversion.value}
+          delta={{ ...data.metrics.conversion.delta, context: 'vs prev 24h' }}
+          sparkline={data.metrics.conversion.sparkline}
+          sparklineColor="#16A34A"
+        />
+        <Stat
+          client:load
+          label="Revenue (24h)"
+          value={data.metrics.revenue.value}
+          delta={{ ...data.metrics.revenue.delta, context: 'vs prev 24h' }}
+          sparkline={data.metrics.revenue.sparkline}
+          sparklineColor="#6366F1"
+        />
+      </div>
+    </div>
+
+    <div class="col-span-12 xl:col-span-8 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">Funnel steps (last 24h)</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            Overall conversion
+            <span class="font-ds-mono tabular text-ds-ink"> {diagram.overallConvPct.toFixed(2)}%</span>
+            {' · '}
+            <span class="font-ds-mono tabular text-ds-ink">{diagram.totalEnter.toLocaleString()}</span> entered ·
+            <span class="font-ds-mono tabular text-ds-ink"> {diagram.totalConvert.toLocaleString()}</span> reached end
+          </div>
+        </div>
+      </div>
+      <div class="px-6 pb-6">
+        {diagram.steps.length === 0 ? (
+          <div class="text-[13px] text-ds-muted text-center py-8">
+            No funnel pages configured. <a href={`/funnel/${funnelId}/pages`} class="text-ds-accent">Add pages</a> to start tracking the funnel.
+          </div>
+        ) : (
+          <div class="flex flex-col gap-3">
+            {diagram.steps.map((step, idx) => (
+              <div>
+                {idx > 0 && step.dropFromPrev > 0 && (
+                  <div class="flex items-center gap-2 text-[11.5px] text-ds-muted pl-3 mb-1">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3 h-3 text-ds-warn">
+                      <path d="M8 3v9M4 8l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span>
+                      Drop-off
+                      <span class="font-ds-mono tabular text-ds-warn"> -{step.dropFromPrev.toLocaleString()}</span>
+                      <span class="font-ds-mono tabular text-ds-muted"> ({step.dropPctFromPrev})</span>
+                    </span>
+                  </div>
+                )}
+                <div class="flex items-center gap-3">
+                  <div class="w-[120px] shrink-0 text-[12.5px] text-ds-ink font-medium">{step.label}</div>
+                  <div class="flex-1 relative h-7 bg-ds-surface2 rounded-md overflow-hidden border border-ds-line">
+                    <svg viewBox="0 0 100 28" preserveAspectRatio="none" class="absolute inset-0 w-full h-full" aria-hidden="true">
+                      <rect
+                        x="0"
+                        y="0"
+                        width={step.barWidthPct.toFixed(2)}
+                        height="28"
+                        fill={idx === diagram.steps.length - 1 ? '#16A34A' : '#2563EB'}
+                        opacity="0.85"
+                      />
+                    </svg>
+                  </div>
+                  <div class="w-[140px] shrink-0 text-right">
+                    <div class="text-[13.5px] text-ds-ink font-ds-mono tabular font-medium">
+                      {step.count.toLocaleString()}
+                    </div>
+                    <div class="text-[11px] text-ds-muted font-ds-mono tabular">
+                      {diagram.totalEnter === 0 ? '0%' : `${((step.count / diagram.totalEnter) * 100).toFixed(1)}%`} of entry
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div class="col-span-12 xl:col-span-4">
+      <div class="rounded-[10px] border border-[#111827] bg-[#1F2937] text-[#D1D5DB] overflow-hidden">
+        <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-[#374151]">
+          <div class="min-w-0">
+            <div class="text-[13px] font-semibold text-[#E5E7EB] flex items-center gap-2">
+              <span class="inline-block w-[7px] h-[7px] rounded-full bg-[#22C55E] animate-softblink"></span>
+              Recent activity
+            </div>
+            <div class="text-[11.5px] text-[#9CA3AF] mt-0.5">
+              Live · <span data-feed-count>{data.activity.length}</span> entries
+            </div>
+          </div>
+          <div class="text-[11px] font-ds-mono tabular text-[#9CA3AF] shrink-0">tail -f</div>
+        </div>
+        <div
+          class="overflow-auto px-4 py-3 font-ds-mono text-[12px] leading-relaxed"
+          style="max-height: 360px;"
+          data-activity-feed
+          data-feed-endpoint={`/api/funnel/${funnelId}/activity/stream`}
+          data-feed-since={data.activity[0] ? String(data.activity[0].ts.getTime()) : ''}
+          data-feed-max="50"
+        >
+          <div data-feed-list>
+            {data.activity.length === 0 ? (
+              <div class="flex gap-3 items-baseline" data-feed-empty>
+                <span class="text-[#9CA3AF] tabular shrink-0">{formatHms(now)}</span>
+                <span class="min-w-0 break-words" style="color: #9CA3AF;">no activity yet</span>
+              </div>
+            ) : (
+              [...data.activity].reverse().map((a) => (
+                <div class="flex gap-3 items-baseline" data-feed-row>
+                  <span class="text-[#9CA3AF] tabular shrink-0">{formatHms(a.ts)}</span>
+                  <span class="min-w-0 break-words">
+                    {a.text} · <span style={`color: ${tokenColor(a.tone)};`}>{a.payload}</span>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <span class="inline-block w-[7px] h-[12px] bg-[#9CA3AF] align-middle ml-1 animate-softblink" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    import '../../../scripts/activity-feed-live.ts';
+  </script>
+</DashboardLayout>

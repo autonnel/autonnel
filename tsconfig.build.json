@@ -1,0 +1,39 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": false,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": false
+  },
+  "include": [
+    "src/env.d.ts",
+    "src/middleware.ts",
+    "src/integration/**/*.ts",
+    "src/cli/**/*.ts",
+    "src/lib/hooks/**/*.ts",
+    "src/lib/tenant/**/*.ts",
+    "src/lib/adapters/**/*.ts",
+    "src/lib/cron/catalog.ts",
+    "src/lib/repositories/domain.repository.ts",
+    "src/lib/services/credentials-crypto.ts",
+    "src/lib/api-helpers.ts",
+    "src/lib/api/guard.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}

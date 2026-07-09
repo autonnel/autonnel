@@ -1,0 +1,174 @@
+---
+import AuthLayout from '@/layouts/AuthLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { resolveSetupState } from '@/lib/auth/setup-state';
+import { getBrandingName, readConfigKey, ConfigKeys } from '@/lib/config/keys';
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/constants/timezone';
+import { cn } from '@/lib/utils';
+import { dsFieldClass } from '@/components/primitives/field-styles';
+
+const state = await resolveSetupState();
+if (!state.needsSetup) {
+  return Astro.redirect('/login', 302);
+}
+if (!state.needsAccount) {
+  const auth = await checkAuth(Astro);
+  if (!auth.authenticated) {
+    return Astro.redirect('/login', 302);
+  }
+}
+
+const needsAccount = state.needsAccount;
+const brandingName = (await getBrandingName()) ?? '';
+const configuredTimezone = await readConfigKey<string>(ConfigKeys.LOCALIZATION_TIMEZONE);
+const timezone = configuredTimezone || DEFAULT_TIMEZONE;
+// No explicit timezone yet: let the browser preselect its own UTC offset.
+const autodetectTimezone = !configuredTimezone;
+---
+
+<AuthLayout title="Set up">
+  <main class="min-h-screen flex items-center justify-center bg-ds-bg p-6">
+    <div class="w-full max-w-md">
+      <div class="bg-ds-card border border-ds-line rounded-[12px] p-6 shadow-sm">
+        <h1 class="text-[18px] font-semibold text-ds-ink mb-1">Welcome</h1>
+        <p class="text-[12px] text-ds-muted mb-6">
+          {needsAccount
+            ? "Let's set up your site. This only takes a minute."
+            : 'A couple of details before you start.'}
+        </p>
+
+        <form id="setup-form" class="flex flex-col gap-6">
+          {needsAccount && (
+            <section class="flex flex-col gap-3">
+              <header class="flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-ds-ink text-ds-card text-[11px] font-semibold inline-flex items-center justify-center">1</span>
+                <h2 class="text-[13px] font-semibold text-ds-ink">Admin account</h2>
+              </header>
+              <p class="text-[12px] text-ds-muted -mt-1">This account has full access. Credentials are stored locally.</p>
+              <label class="flex flex-col gap-1">
+                <span class="text-[12px] text-ds-muted">Email</span>
+                <input required type="email" autocomplete="username" name="username" class={cn(dsFieldClass)} />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-[12px] text-ds-muted">Password (min 8 chars)</span>
+                <input required minlength="8" autocomplete="new-password" name="password" type="password" class={cn(dsFieldClass)} />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-[12px] text-ds-muted">Confirm password</span>
+                <input required minlength="8" autocomplete="new-password" name="confirmPassword" type="password" class={cn(dsFieldClass)} />
+              </label>
+            </section>
+          )}
+
+          <section class="flex flex-col gap-3">
+            <header class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-ds-ink text-ds-card text-[11px] font-semibold inline-flex items-center justify-center">{needsAccount ? 2 : 1}</span>
+              <h2 class="text-[13px] font-semibold text-ds-ink">Site name</h2>
+            </header>
+            <p class="text-[12px] text-ds-muted -mt-1">Shown to customers on storefront pages and transactional emails.</p>
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] text-ds-muted">Name</span>
+              <input required maxlength="60" name="brandingName" value={brandingName} class={cn(dsFieldClass)} />
+            </label>
+          </section>
+
+          <section class="flex flex-col gap-3">
+            <header class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-ds-ink text-ds-card text-[11px] font-semibold inline-flex items-center justify-center">{needsAccount ? 3 : 2}</span>
+              <h2 class="text-[13px] font-semibold text-ds-ink">Timezone</h2>
+            </header>
+            <p class="text-[12px] text-ds-muted -mt-1">Default timezone for stats, orders and admin timestamps.</p>
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] text-ds-muted">Timezone</span>
+              <select name="timezone" data-autodetect={autodetectTimezone ? 'true' : 'false'} class={cn(dsFieldClass)}>
+                {TIMEZONE_OPTIONS.map((option) => (
+                  <option value={option.value} selected={option.value === timezone}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </section>
+
+          <p id="setup-error" class="text-[12px] text-red-600 hidden"></p>
+          <button
+            id="setup-submit"
+            type="submit"
+            class="h-9 px-3 text-[13px] font-medium rounded-[7px] bg-ds-ink text-ds-card hover:bg-[#1F2937] transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <svg id="setup-spinner" class="animate-spin h-3.5 w-3.5 hidden" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span id="setup-label">Complete setup</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
+</AuthLayout>
+
+<script is:inline>
+  const form = document.getElementById('setup-form');
+  const errorEl = document.getElementById('setup-error');
+  const submitBtn = document.getElementById('setup-submit');
+  const spinnerEl = document.getElementById('setup-spinner');
+  const labelEl = document.getElementById('setup-label');
+  let submitting = false;
+
+  const tzSelect = form?.querySelector('select[name="timezone"]');
+  if (tzSelect && tzSelect.dataset.autodetect === 'true') {
+    const offset = -new Date().getTimezoneOffset() / 60;
+    if (Number.isInteger(offset)) {
+      const value = offset === 0 ? 'UTC' : offset > 0 ? `Etc/GMT-${offset}` : `Etc/GMT+${-offset}`;
+      if ([...tzSelect.options].some((o) => o.value === value)) tzSelect.value = value;
+    }
+  }
+
+  function setLoading(loading) {
+    submitting = loading;
+    if (submitBtn) submitBtn.disabled = loading;
+    if (spinnerEl) spinnerEl.classList.toggle('hidden', !loading);
+    if (labelEl) labelEl.textContent = loading ? 'Setting up…' : 'Complete setup';
+  }
+
+  function showError(message) {
+    if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden'); }
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    if (errorEl) { errorEl.classList.add('hidden'); errorEl.textContent = ''; }
+
+    const data = new FormData(form);
+    const password = data.get('password');
+    if (password !== null && password !== data.get('confirmPassword')) {
+      showError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: data.get('username') ?? undefined,
+          password: password ?? undefined,
+          brandingName: data.get('brandingName'),
+          timezone: data.get('timezone'),
+        }),
+      });
+      if (res.ok) {
+        window.location.href = '/overview';
+        return;
+      }
+      let message = 'Setup failed';
+      try { message = (await res.json()).error || message; } catch {}
+      showError(message);
+      setLoading(false);
+    } catch {
+      showError('Network error. Please try again.');
+      setLoading(false);
+    }
+  });
+</script>

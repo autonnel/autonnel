@@ -1,0 +1,535 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import OrderMetadataPanel from '@/components/orders/OrderMetadataPanel.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { loadOrderDetail, loadOrderPayment, loadOrderPostbacks, loadOrderActivity, loadOrderTransactions } from '@/lib/dashboard/orders-data';
+import {
+  statusBadgeClasses,
+  prettyTemplateType,
+  formatMoneyMinor,
+  summarizeMetadata,
+} from '@/lib/dashboard/orders-helpers';
+import { relativeTime } from '@/lib/dashboard/overview-helpers';
+import { formatDateTimeInTimezone, timezoneLabel, DEFAULT_TIMEZONE } from '@/lib/constants/timezone';
+import { getSiteTimezone } from '@/lib/config/keys';
+import { cn } from '@/lib/utils';
+import { dsTextareaClass, dsFieldClass, dsSelectClass, dsFieldLabelClass } from '@/components/primitives/field-styles';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.ORDERS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const { orderId } = Astro.params;
+const now = new Date();
+const tz = await getSiteTimezone().catch(() => DEFAULT_TIMEZONE);
+
+let order: Awaited<ReturnType<typeof loadOrderDetail>> = null;
+try {
+  order = await loadOrderDetail(orderId!);
+} catch {
+  order = null;
+}
+if (!order) {
+  return new Response('Order not found', { status: 404 });
+}
+
+const payment = await loadOrderPayment(order.saleRef);
+const ledger = await loadOrderTransactions(order.saleRef);
+const postbacks = await loadOrderPostbacks(order.saleRef, order.attributionSessionId);
+const activity = await loadOrderActivity(order.attributionVisitorId, order.attributionSessionId);
+
+const capturedMinor = order.capturedTotalMinor - order.refundedMinor;
+
+const canRefund = await userHasFeature(auth.user.id, FEATURES.ORDERS_REFUND);
+const intentCaptured = !!payment && payment.status === 'CAPTURED';
+const charges = ledger?.charges ?? [];
+const refundRows = ledger?.refunds ?? [];
+const shortRef = (s: string | null) => (s ? (s.length > 14 ? s.slice(0, 14) + '…' : s) : '—');
+---
+
+<DashboardLayout
+  title={`Order ${order.orderNumber}`}
+  activeNav="orders.orders"
+  breadcrumbs={[
+    { label: 'Autonnel', href: '/' },
+    { label: 'Orders', href: '/orders' },
+    { label: order.orderNumber },
+  ]}
+>
+  <a
+    slot="header-actions"
+    href="/orders"
+    class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+  >
+    Back
+  </a>
+
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 xl:col-span-8 flex flex-col gap-5">
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
+        <div class="flex items-center gap-4 min-w-0">
+          <span class={`inline-flex items-center gap-1.5 rounded-full border px-3 py-[5px] text-[13px] font-semibold leading-none ${statusBadgeClasses(order.status)}`}>
+            {order.status.replace('_', ' ')}
+          </span>
+          <div class="min-w-0">
+            <div class="text-[13px] text-ds-muted">Order placed</div>
+            <div class="text-[14px] text-ds-ink font-ds-mono tabular">
+              {formatDateTimeInTimezone(order.createdAt, tz)} {timezoneLabel(tz)}
+            </div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-[12.5px] text-ds-muted">Total</div>
+          <div class="text-[20px] font-semibold font-ds-mono tabular text-ds-ink">
+            {formatMoneyMinor(order.capturedTotalMinor, order.currency)}
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4">
+          <div class="text-[14px] font-semibold text-ds-ink">Order summary</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{order.lines.length}</span> item{order.lines.length === 1 ? '' : 's'}
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Item</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Qty</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Unit</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.lines.length === 0 ? (
+                <tr><td colspan="4" class="px-4 py-6 text-center text-[13px] text-ds-muted">No items.</td></tr>
+              ) : (
+                order.lines.map((it) => (
+                  <tr>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">{it.title || '—'}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{it.quantity}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatMoneyMinor(it.unitPriceMinor, order.currency)}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatMoneyMinor(it.lineTotalMinor, order.currency)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div class="px-6 py-4 bg-ds-surface2 border-t border-ds-line">
+          <div class="grid grid-cols-2 gap-x-8 gap-y-1 max-w-[420px] ml-auto text-[13px]">
+            <div class="text-ds-ink font-semibold">Total</div>
+            <div class="text-right font-ds-mono tabular text-ds-ink font-semibold">
+              {formatMoneyMinor(order.capturedTotalMinor, order.currency)}
+            </div>
+            {order.refundedMinor > 0 && (
+              <>
+                <div class="text-ds-bad">Refunded</div>
+                <div class="text-right font-ds-mono tabular text-ds-bad">-{formatMoneyMinor(order.refundedMinor, order.currency)}</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4">
+          <div class="text-[14px] font-semibold text-ds-ink">Customer</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">Snapshot at checkout</div>
+        </div>
+        <div class="px-6 pb-5 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-[13px]">
+          <div>
+            <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Email</div>
+            <div class="font-ds-mono tabular text-ds-ink break-all">{order.customerEmail || '—'}</div>
+          </div>
+          <div>
+            <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Name</div>
+            <div class="text-ds-ink">{order.customerName || '—'}</div>
+          </div>
+          <div>
+            <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Phone</div>
+            <div class="font-ds-mono tabular text-ds-ink">{order.customerPhone || '—'}</div>
+          </div>
+          {order.attributionUtm.length > 0 && (
+            <div class="md:col-span-2">
+              <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-1">Traffic source (UTM)</div>
+              <div class="flex flex-wrap gap-1.5">
+                {order.attributionUtm.map((u) => (
+                  <span class="inline-flex items-center gap-1.5 rounded-full border border-ds-line bg-ds-surface2 px-2.5 py-[3px] text-[11.5px] leading-none">
+                    <span class="uppercase tracking-[0.02em] text-ds-muted">{u.key.replace('utm_', '')}</span>
+                    <span class="font-ds-mono tabular text-ds-ink break-all">{u.value}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {order.attributionFirstSeenUrl && (
+            <div class="md:col-span-2">
+              <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">First-seen URL</div>
+              <a href={order.attributionFirstSeenUrl} target="_blank" rel="noopener noreferrer" class="font-ds-mono tabular text-[12px] text-ds-ink break-all hover:underline">{order.attributionFirstSeenUrl}</a>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4">
+          <div class="text-[14px] font-semibold text-ds-ink">Payment</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">Capture &amp; refund totals</div>
+        </div>
+        <div class="px-6 pb-5 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-[13px]">
+          {payment && (
+            <div>
+              <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Method</div>
+              <div class="font-ds-mono tabular text-ds-ink">
+                {payment.provider} · {payment.cardBrand ? `${payment.cardBrand} ····${payment.last4}` : '—'}
+              </div>
+            </div>
+          )}
+          {payment?.providerIntentId && (
+            <div>
+              <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Payment intent</div>
+              <div class="font-ds-mono tabular text-ds-ink break-all">{payment.providerIntentId}</div>
+            </div>
+          )}
+          {payment?.providerChargeId && (
+            <div>
+              <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Charge</div>
+              <div class="font-ds-mono tabular text-ds-ink break-all">{payment.providerChargeId}</div>
+            </div>
+          )}
+          <div>
+            <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Captured (net)</div>
+            <div class="font-ds-mono tabular text-ds-ink">{formatMoneyMinor(capturedMinor, order.currency)}</div>
+          </div>
+          <div>
+            <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Refunded</div>
+            <div class="font-ds-mono tabular text-ds-ink">{formatMoneyMinor(order.refundedMinor, order.currency)}</div>
+          </div>
+          <div>
+            <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Sale ref</div>
+            <div class="font-ds-mono tabular text-ds-ink break-all">{order.saleRef}</div>
+          </div>
+          {order.backendOrderRef && (
+            <div>
+              <div class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted mb-0.5">Backend order</div>
+              <div class="font-ds-mono tabular text-ds-ink break-all">{order.backendOrderRef}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4">
+          <div class="text-[14px] font-semibold text-ds-ink">Transactions</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{charges.length}</span> charge{charges.length === 1 ? '' : 's'} ·
+            <span class="font-ds-mono tabular"> {refundRows.length}</span> refund{refundRows.length === 1 ? '' : 's'}
+          </div>
+        </div>
+        {charges.length === 0 ? (
+          <div class="px-6 pb-5 text-[13px] text-ds-muted">No charges recorded.</div>
+        ) : (
+          <div class="border-t border-ds-line divide-y divide-[#F3F4F6]">
+            {charges.map((ch, idx) => {
+              const label = idx === 0 ? 'Base charge' : `Upsell ${idx}`;
+              const canRefundCharge = canRefund && intentCaptured && ch.refundableMinor > 0;
+              return (
+                <div class="px-6 py-3.5">
+                  <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="text-[13.5px] font-semibold text-ds-ink font-ds-mono tabular">{formatMoneyMinor(ch.amountMinor, ledger?.currency || order.currency)}</span>
+                        <span class="text-[11px] uppercase tracking-[0.02em] text-ds-muted">{label}</span>
+                      </div>
+                      <div class="text-[11.5px] text-ds-muted font-ds-mono tabular break-all" title={ch.chargeRef || ''}>{ch.chargeRef || '—'}</div>
+                      <div class="text-[11.5px] text-ds-faint mt-0.5">
+                        refunded <span class="font-ds-mono tabular">{formatMoneyMinor(ch.refundedMinor, ledger?.currency || order.currency)}</span> ·
+                        <span class="font-ds-mono tabular"> {formatMoneyMinor(ch.refundableMinor, ledger?.currency || order.currency)}</span> refundable
+                      </div>
+                    </div>
+                    {ch.refundableMinor === 0 && (
+                      <span class="text-[11.5px] text-ds-muted whitespace-nowrap">Fully refunded</span>
+                    )}
+                  </div>
+                  {canRefundCharge && (
+                    <details class="mt-2">
+                      <summary class="list-none cursor-pointer inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-1.5 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] select-none">Refund this charge</summary>
+                      <form
+                        class="refund-form mt-3 flex flex-col gap-2.5 max-w-[420px]"
+                        data-intent-id={ledger?.intentId}
+                        data-charge-ref={ch.chargeRef}
+                        data-currency={ledger?.currency || order.currency}
+                        data-refundable-minor={ch.refundableMinor}
+                      >
+                        <div>
+                          <label class={dsFieldLabelClass}>Type</label>
+                          <select name="kind" class={cn(dsSelectClass, 'rf-kind')}>
+                            <option value="full">Full ({formatMoneyMinor(ch.refundableMinor, ledger?.currency || order.currency)})</option>
+                            <option value="fixed">Fixed amount</option>
+                            <option value="percentage">Percentage of charge</option>
+                          </select>
+                        </div>
+                        <div class="rf-fixed" hidden>
+                          <label class={dsFieldLabelClass}>Amount ({ledger?.currency || order.currency})</label>
+                          <input class={cn(dsFieldClass, 'rf-amount')} type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+                        </div>
+                        <div class="rf-percentage" hidden>
+                          <label class={dsFieldLabelClass}>Percentage</label>
+                          <input class={cn(dsFieldClass, 'rf-pct')} type="number" min="1" max="100" step="1" inputmode="numeric" placeholder="1 – 100" />
+                        </div>
+                        <div>
+                          <label class={dsFieldLabelClass}>Reason (optional)</label>
+                          <textarea class={cn(dsTextareaClass, 'rf-reason', 'resize-y')} rows="2" placeholder="Why is this being refunded?"></textarea>
+                        </div>
+                        <button type="submit" class="rf-submit self-end inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-4 text-[13px] gap-2 bg-ds-bad border border-ds-bad text-white hover:opacity-90 disabled:opacity-50">Issue refund</button>
+                      </form>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {refundRows.length > 0 && (
+          <div class="border-t border-ds-line">
+            <div class="px-6 py-3 text-[12.5px] uppercase tracking-[0.02em] text-ds-muted bg-ds-surface2">Refunds</div>
+            <table class="w-full border-collapse">
+              <tbody>
+                {refundRows.map((r) => (
+                  <tr>
+                    <td class="px-6 py-2.5 text-[12.5px] border-b border-[#F3F4F6] font-ds-mono tabular text-ds-muted">
+                      {r.providerRefundRef || r.transactionId.slice(0, 8) + '…'}
+                      <div class="text-[11px] text-ds-faint break-all">on {shortRef(r.chargeRef)}</div>
+                    </td>
+                    <td class="px-4 py-2.5 text-[13px] border-b border-[#F3F4F6] font-ds-mono tabular text-right text-ds-bad">-{formatMoneyMinor(r.amountMinor, ledger?.currency || order.currency)}</td>
+                    <td class="px-4 py-2.5 border-b border-[#F3F4F6]">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${statusBadgeClasses(r.status)}`}>{r.status}</span>
+                    </td>
+                    <td class="px-6 py-2.5 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] text-right whitespace-nowrap font-ds-mono tabular" title={`${formatDateTimeInTimezone(r.createdAt, tz)} ${timezoneLabel(tz)}`}>{relativeTime(r.createdAt, now)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <details class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] group">
+        <summary class="list-none cursor-pointer px-6 py-4 flex items-center justify-between">
+          <div>
+            <div class="text-[14px] font-semibold text-ds-ink">Visit history</div>
+            <div class="text-[12.5px] text-ds-muted mt-0.5">
+              <span class="font-ds-mono tabular">{order.visitsTotal}</span> total · showing
+              <span class="font-ds-mono tabular"> {order.visits.length}</span>
+            </div>
+          </div>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-ds-muted transition-transform group-open:rotate-180">
+            <path d="M4 6l4 4l4-4" />
+          </svg>
+        </summary>
+        <div class="border-t border-ds-line max-h-[420px] overflow-auto">
+          {order.visits.length === 0 ? (
+            <div class="px-6 py-6 text-[13px] text-ds-muted text-center">No visits recorded.</div>
+          ) : (
+            <table class="w-full border-collapse">
+              <tbody>
+                {order.visits.map((v) => (
+                  <tr>
+                    <td class="px-6 py-2.5 text-[12px] border-b border-[#F3F4F6] font-ds-mono tabular text-ds-muted whitespace-nowrap" title={`${timezoneLabel(tz)}`}>
+                      {formatDateTimeInTimezone(v.occurredAt, tz)}
+                    </td>
+                    <td class="px-4 py-2.5 text-[12.5px] border-b border-[#F3F4F6] text-ds-slate">{v.kind || '—'}</td>
+                    <td class="px-6 py-2.5 text-[12.5px] border-b border-[#F3F4F6] font-ds-mono tabular text-ds-ink truncate max-w-[420px]" title={v.url}>
+                      {v.url}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </details>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-4">
+          <div class="text-[14px] font-semibold text-ds-ink">User activity</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{activity.length}</span> event{activity.length === 1 ? '' : 's'}
+          </div>
+        </div>
+        <div class="border-t border-ds-line max-h-[480px] overflow-auto">
+          {activity.length === 0 ? (
+            <div class="px-6 py-6 text-[13px] text-ds-muted text-center">No activity recorded.</div>
+          ) : (
+            <ul class="divide-y divide-[#F3F4F6]">
+              {activity.map((a) => {
+                const meta = summarizeMetadata(a.metadata);
+                const target = a.url || a.stepId || '';
+                return (
+                  <li class="px-6 py-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11px] font-medium leading-none shrink-0 ${statusBadgeClasses(a.kind)}`}>
+                        {a.kind || '—'}
+                      </span>
+                      <span class="text-[12.5px] font-ds-mono tabular text-ds-ink truncate min-w-0" title={target}>
+                        {target || '—'}
+                      </span>
+                      <span class="ml-auto text-[11.5px] text-ds-muted whitespace-nowrap font-ds-mono tabular shrink-0" title={`${formatDateTimeInTimezone(a.occurredAt, tz)} ${timezoneLabel(tz)}`}>
+                        {relativeTime(a.occurredAt, now)}
+                      </span>
+                    </div>
+                    {meta && (
+                      <div class="text-[11px] text-ds-faint mt-1 font-ds-mono tabular truncate" title={meta}>{meta}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-span-12 xl:col-span-4 flex flex-col gap-5">
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-3">
+          <div class="text-[14px] font-semibold text-ds-ink">Quick actions</div>
+        </div>
+        <div class="px-6 pb-5 flex flex-col gap-2">
+          <button
+            type="button"
+            data-action="resync"
+            class="w-full inline-flex items-center justify-center font-medium rounded-[7px] h-9 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB]"
+          >
+            Resync fulfillment
+          </button>
+          <button
+            type="button"
+            data-action="resend-email"
+            class="w-full inline-flex items-center justify-center font-medium rounded-[7px] h-9 px-3 text-[13px] gap-2 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937]"
+          >
+            Resend confirmation email
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-3">
+          <div class="text-[14px] font-semibold text-ds-ink">Note</div>
+        </div>
+        <div class="px-6 pb-5 flex flex-col gap-2">
+          <textarea
+            id="order-note"
+            rows="3"
+            placeholder="Internal note for this order…"
+            class={cn(dsTextareaClass, "resize-y")}
+          >{order.note || ''}</textarea>
+          <button
+            type="button"
+            data-action="save-note"
+            class="self-end inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB]"
+          >
+            Save note
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-3">
+          <div class="text-[14px] font-semibold text-ds-ink">Emails</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{order.emails.length}</span> messages
+          </div>
+        </div>
+        <div class="border-t border-ds-line">
+          {order.emails.length === 0 ? (
+            <div class="px-6 py-5 text-[13px] text-ds-muted text-center">No emails sent yet.</div>
+          ) : (
+            <ul class="divide-y divide-[#F3F4F6]">
+              {order.emails.map((e) => (
+                <li class="px-6 py-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-[13px] text-ds-ink truncate min-w-0">
+                      {prettyTemplateType(e.templateKey)}
+                    </div>
+                    <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11px] font-medium leading-none shrink-0 ${statusBadgeClasses(e.status)}`}>
+                      {e.status}
+                    </span>
+                  </div>
+                  {e.subject && (
+                    <div class="text-[11.5px] text-ds-muted font-ds-mono tabular truncate" title={e.subject}>{e.subject}</div>
+                  )}
+                  <div class="text-[11px] text-ds-faint mt-0.5 font-ds-mono tabular">
+                    to {e.recipient} · <span title={`${formatDateTimeInTimezone(e.createdAt, tz)} ${timezoneLabel(tz)}`}>{relativeTime(e.createdAt, now)}</span>
+                  </div>
+                  {e.lastError && (
+                    <div class="text-[11px] text-ds-bad truncate mt-0.5" title={e.lastError}>{e.lastError}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-3">
+          <div class="text-[14px] font-semibold text-ds-ink">Conversion postbacks</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{postbacks.length}</span> fired
+          </div>
+        </div>
+        <div class="border-t border-ds-line">
+          {postbacks.length === 0 ? (
+            <div class="px-6 py-5 text-[13px] text-ds-muted text-center">No postbacks fired.</div>
+          ) : (
+            <ul class="divide-y divide-[#F3F4F6]">
+              {postbacks.map((p) => (
+                <li class="px-6 py-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-[12.5px] text-ds-ink font-ds-mono tabular truncate min-w-0" title={p.destinationId}>
+                      {p.destinationId}
+                    </div>
+                    <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11px] font-medium leading-none shrink-0 ${statusBadgeClasses(p.status)}`}>
+                      {p.status}
+                    </span>
+                  </div>
+                  <div class="text-[11.5px] text-ds-muted mt-0.5">
+                    {p.eventName || '—'} · <span class="font-ds-mono tabular">{p.attemptCount}</span> attempt{p.attemptCount === 1 ? '' : 's'}
+                  </div>
+                  {p.providerRef && (
+                    <div class="text-[11px] text-ds-faint mt-0.5 font-ds-mono tabular break-all" title={p.providerRef}>{p.providerRef}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <OrderMetadataPanel
+        id={order.id}
+        saleRef={order.saleRef}
+        trackingCarrier={order.trackingCarrier}
+        trackingNumber={order.trackingNumber}
+        backendOrderRef={order.backendOrderRef}
+      />
+    </div>
+  </div>
+
+  <div id="order-actions" data-order-id={order.id} hidden></div>
+
+  <script>
+    import '../../scripts/order-actions';
+  </script>
+</DashboardLayout>

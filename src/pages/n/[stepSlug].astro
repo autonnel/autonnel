@@ -1,0 +1,54 @@
+---
+import { renderStepForRequest } from '@/composition/render-funnel-step';
+import CheckoutIsland from '@/components/storefront/CheckoutIsland.tsx';
+
+export const prerender = false;
+
+const stepSlug = Astro.params.stepSlug!;
+const cookieHeader = Astro.request.headers.get('cookie');
+let result;
+try {
+  result = await renderStepForRequest(stepSlug, cookieHeader, Astro.locals);
+} catch {
+  return new Response('Not found', { status: 404 });
+}
+
+function readAnidFromCookie(header: string | null): string {
+  if (!header) return '';
+  const anidMatch = header.match(/(?:^|;\s*)anid=([^;]+)/);
+  if (anidMatch) return anidMatch[1].trim();
+  const goidMatch = header.match(/(?:^|;\s*)goid=([^;]+)/);
+  return goidMatch ? goidMatch[1].trim() : '';
+}
+
+function generateTrackingId(): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).substring(2, 15);
+  return `${ts}${rand}`;
+}
+
+const reqUrl = new URL(Astro.request.url);
+const anidFromUrl = reqUrl.searchParams.get('anid') || reqUrl.searchParams.get('goid') || '';
+const anid = anidFromUrl || readAnidFromCookie(cookieHeader) || generateTrackingId();
+
+if (result.setCookie) Astro.response.headers.append('Set-Cookie', result.setCookie);
+Astro.response.headers.append(
+  'Set-Cookie',
+  `anid=${encodeURIComponent(anid)}; Path=/; Max-Age=31536000; SameSite=Lax`,
+);
+---
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+  <body>
+    <!-- Static published HTML rendered server-side (zero JS) -->
+    <Fragment set:html={result.html} />
+    <script is:inline define:vars={{ anid }}>window.__AUTONNEL_SERVER_ANID__ = anid;</script>
+    <!-- Only interactive checkout components hydrate as Islands -->
+    <CheckoutIsland
+      client:load
+      funnelId={result.funnelId}
+      step={result.currentStep}
+    />
+  </body>
+</html>

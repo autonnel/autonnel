@@ -1,0 +1,49 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { getAllProviders } from '@/lib/adapters/payment/registry';
+import '@/lib/adapters/payment/providers';
+import { listPaymentProviders, type PaymentProvider } from '@/lib/config/payment';
+import PaymentProvidersGrid, { type ProviderCardData } from '@/components/settings/payment/PaymentProvidersGrid';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const url = new URL(Astro.request.url);
+if (url.searchParams.get('tab') === 'refunds') {
+  return Astro.redirect('/transactions');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PAYMENT);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const configs = await listPaymentProviders();
+const configByProvider = new Map(configs.map((c) => [c.provider, c]));
+
+const providers: ProviderCardData[] = getAllProviders().map((entry) => {
+  const existing = configByProvider.get(entry.dbProvider as PaymentProvider);
+  return {
+    id: entry.dbProvider,
+    displayName: entry.displayName,
+    configured: !!existing,
+    mode: (existing?.settings as Record<string, any> | undefined)?.mode,
+    href: `/payment/${entry.dbProvider.toLowerCase()}`,
+  };
+});
+---
+
+<DashboardLayout title="Payment" activeNav="payment.payment">
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12">
+      <div class="mb-5 text-[12.5px] text-ds-muted">
+        Configure credentials for each provider. Highlighted cards have saved credentials.
+      </div>
+      <PaymentProvidersGrid providers={providers} client:load />
+    </div>
+  </div>
+</DashboardLayout>

@@ -1,0 +1,127 @@
+---
+import '../styles/global.css';
+import Sidebar from '@/components/layout/Sidebar.astro';
+import Topbar from '@/components/layout/Topbar.astro';
+import Footer from '@/components/layout/Footer.astro';
+import GlobalBanners from '@/components/layout/GlobalBanners.astro';
+import CommandPalette from '@/components/primitives/ds/CommandPalette';
+import ToastProvider from '@/components/primitives/ds/ToastProvider';
+import { loadPaletteSeed } from '@/lib/dashboard/palette-data';
+import { findNavById } from '@/lib/dashboard/nav';
+import { getPolicyHooks } from '@/lib/plugins/registry';
+import { getCurrentTenantId } from '@/lib/tenant/context';
+
+interface Crumb {
+  label: string;
+  href?: string;
+}
+
+interface Props {
+  title: string;
+  breadcrumbs?: Crumb[];
+  activeNav?: string;
+  pageTitle?: string;
+  hideHeading?: boolean;
+}
+
+const {
+  title,
+  breadcrumbs: breadcrumbsOverride,
+  activeNav,
+  pageTitle,
+  hideHeading = false,
+} = Astro.props;
+
+let breadcrumbs: Crumb[] = breadcrumbsOverride ?? [];
+if (!breadcrumbsOverride) {
+  const trail: Crumb[] = [{ label: 'Autonnel', href: '/' }];
+  if (activeNav) {
+    const { group, child } = findNavById(activeNav);
+    if (child && group) {
+      trail.push({ label: group.label, href: group.href ?? group.children?.[0]?.href });
+      trail.push({ label: child.label });
+    } else if (group) {
+      trail.push({ label: group.label });
+    } else {
+      trail.push({ label: title });
+    }
+  } else {
+    trail.push({ label: title });
+  }
+  breadcrumbs = trail;
+}
+
+const docTitle = pageTitle ?? `${title} · Autonnel`;
+
+let paletteSeed: { funnels: Array<{ id: string; name: string; slug?: string | null }>; sites: Array<{ id: string; name: string }> } = {
+  funnels: [],
+  sites: [],
+};
+try {
+  paletteSeed = await loadPaletteSeed();
+} catch {
+}
+
+const tenantId = getCurrentTenantId();
+const globalBanners = await Promise.resolve(
+  getPolicyHooks().getGlobalBanners({ id: tenantId }),
+).catch(() => []);
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{docTitle}</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="min-h-screen bg-ds-app text-ds-ink font-ds-sans antialiased">
+    <a
+      href="#autonnel-main-content"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-ds-card focus:border focus:border-ds-line focus:rounded-md focus:px-3 focus:py-1.5 focus:text-[13px] focus:text-ds-ink focus:shadow-[0_4px_12px_rgba(17,24,39,.12)]"
+    >
+      Skip to main content
+    </a>
+    <Sidebar activeNav={activeNav} />
+
+    <main
+      id="autonnel-main-content"
+      class="ml-[240px] min-h-screen flex flex-col bg-ds-app"
+      tabindex="-1"
+    >
+      <Topbar breadcrumbs={breadcrumbs} />
+      <GlobalBanners banners={globalBanners} />
+
+      {!hideHeading && (
+        <div class="px-8 pt-8 pb-6 flex items-end justify-between flex-wrap gap-4">
+          <div class="min-w-0">
+            <h1 class="text-[24px] font-semibold tracking-tight text-ds-ink">{title}</h1>
+          </div>
+          <div class="flex items-center gap-2">
+            <slot name="header-actions" />
+          </div>
+        </div>
+      )}
+
+      <div class={hideHeading ? 'flex-1 min-h-0' : 'flex-1 px-8 pb-10'}>
+        <slot />
+      </div>
+
+      {!hideHeading && <Footer />}
+    </main>
+
+    <script is:inline define:vars={{ paletteSeed }}>
+      window.__AUTONNEL_PALETTE_DATA__ = paletteSeed;
+    </script>
+
+    <CommandPalette client:load />
+    <ToastProvider client:load />
+  </body>
+</html>

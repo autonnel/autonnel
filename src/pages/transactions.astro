@@ -1,0 +1,221 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { makeTransactionQuery } from '@/composition/make-payments';
+import type { TransactionListFilters } from '@/modules/payments/application/transaction-query.service';
+import { getBasePrisma } from '@/lib/db';
+import { getCurrentTenantId } from '@/lib/tenant/context';
+import { cn } from '@/lib/utils';
+import { dsFieldClass, dsSelectClass } from '@/components/primitives/field-styles';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.TRANSACTIONS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+
+const url = new URL(Astro.request.url);
+const sp = url.searchParams;
+
+const page = Math.max(1, parseInt(sp.get('page') || '1', 10) || 1);
+const perPage = 20;
+
+const typeRaw = sp.get('type') || '';
+const statusRaw = sp.get('status') || '';
+const provider = sp.get('provider') || '';
+const dateFrom = sp.get('from') || '';
+const dateTo = sp.get('to') || '';
+const search = sp.get('q') || '';
+
+const filters: TransactionListFilters = {};
+if (typeRaw === 'CHARGE' || typeRaw === 'REFUND') filters.type = typeRaw;
+if (statusRaw) filters.status = statusRaw;
+if (provider) filters.provider = provider;
+if (dateFrom) filters.dateFrom = dateFrom;
+if (dateTo) filters.dateTo = dateTo;
+if (search) filters.search = search;
+
+const result = await makeTransactionQuery()
+  .list(filters, page, perPage)
+  .catch(() => ({ items: [] as never[], total: 0, page, limit: perPage, totalPages: 1 }));
+
+// Resolve the owning order for each transaction: parentTransactionId is the PaymentIntent.id, which
+// maps via saleRef to an Order. Both a merged-upsell base + upsell charge now resolve to one order.
+const piIds = Array.from(new Set(result.items.map((t) => t.parentTransactionId).filter(Boolean))) as string[];
+const orderByPi = new Map<string, { orderId: string; orderNumber: string }>();
+if (piIds.length) {
+  const tenantId = getCurrentTenantId();
+  const intents: Array<{ id: string; saleRef: string }> = await getBasePrisma()
+    .paymentIntent.findMany({ where: { id: { in: piIds } }, select: { id: true, saleRef: true } })
+    .catch(() => []);
+  const saleToPi = new Map(intents.map((i) => [i.saleRef, i.id]));
+  const orders: Array<{ id: string; orderNumber: string; saleRef: string }> = intents.length
+    ? await getBasePrisma()
+        .order.findMany({ where: { tenantId, saleRef: { in: intents.map((i) => i.saleRef) } }, select: { id: true, orderNumber: true, saleRef: true } })
+        .catch(() => [])
+    : [];
+  for (const o of orders) {
+    const pi = saleToPi.get(o.saleRef);
+    if (pi) orderByPi.set(pi, { orderId: o.id, orderNumber: o.orderNumber });
+  }
+}
+
+const TYPE_OPTIONS = ['CHARGE', 'REFUND'];
+const STATUS_OPTIONS = ['PENDING', 'SUCCEEDED', 'FAILED'];
+
+function statusTone(status: string): 'ok' | 'warn' | 'bad' | 'muted' {
+  if (status === 'COMPLETED' || status === 'SUCCEEDED') return 'ok';
+  if (status === 'PENDING') return 'warn';
+  if (status === 'FAILED') return 'bad';
+  return 'muted';
+}
+
+function badgeClasses(tone: 'ok' | 'warn' | 'bad' | 'muted'): string {
+  switch (tone) {
+    case 'ok': return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+    case 'warn': return 'bg-ds-warnBg border-ds-warnBorder text-ds-warnText';
+    case 'bad': return 'bg-ds-badBg border-ds-badBorder text-ds-badText';
+    default: return 'bg-ds-surface2 border-ds-line text-ds-muted';
+  }
+}
+
+function fmtAmount(amountMinor: number, currency: string): string {
+  const n = amountMinor / 100;
+  if (!isFinite(n)) return '—';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(n);
+}
+
+function pageHref(p: number): string {
+  const params = new URLSearchParams(url.searchParams);
+  params.set('page', String(p));
+  return `/transactions?${params.toString()}`;
+}
+
+const totalPages = Math.max(1, result.totalPages || Math.ceil(result.total / perPage));
+---
+
+<DashboardLayout
+  title="Transactions"
+  activeNav="payment.transactions"
+>
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">All transactions</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            <span class="font-ds-mono tabular">{result.total}</span> matching · showing
+            <span class="font-ds-mono tabular"> {result.items.length}</span>
+          </div>
+        </div>
+        <form method="get" action="/transactions" class="flex items-center gap-2 shrink-0 flex-wrap">
+          <input
+            type="text"
+            name="q"
+            value={search}
+            placeholder="Order # or transaction id"
+            class={cn(dsFieldClass, "h-8 w-[200px]")}
+          />
+          <select name="type" class={cn(dsSelectClass, "h-8 w-auto")}>
+            <option value="">All types</option>
+            {TYPE_OPTIONS.map((t) => <option value={t} selected={typeRaw === t}>{t}</option>)}
+          </select>
+          <select name="status" class={cn(dsSelectClass, "h-8 w-auto")}>
+            <option value="">All status</option>
+            {STATUS_OPTIONS.map((s) => <option value={s} selected={statusRaw === s}>{s}</option>)}
+          </select>
+          <input type="text" name="provider" value={provider} placeholder="Provider" class={cn(dsFieldClass, "h-8 w-[120px]")} />
+          <input type="date" name="from" value={dateFrom} class={cn(dsFieldClass, "h-8 w-auto")} />
+          <input type="date" name="to" value={dateTo} class={cn(dsFieldClass, "h-8 w-auto")} />
+          <button type="submit" class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB]">
+            Filter
+          </button>
+        </form>
+      </div>
+
+      {result.items.length === 0 ? (
+        <div class="px-6 py-16 text-center text-[13px] text-ds-muted">No transactions match these filters.</div>
+      ) : (
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Type</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Status</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Amount</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Provider</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Refund ref</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Order</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.items.map((t) => {
+                const tone = statusTone(t.status);
+                return (
+                  <tr class="hover:bg-ds-surface2 transition-colors">
+                    <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${t.type === 'REFUND' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+                        {t.type}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${badgeClasses(tone)}`}>
+                        {t.status}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">
+                      {fmtAmount(t.amountMinor, t.currencyCode)}
+                    </td>
+                    <td class="px-4 py-3 text-[13px] text-ds-slate border-b border-[#F3F4F6] font-ds-mono">
+                      {t.provider}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] font-ds-mono tabular truncate max-w-[200px]" title={t.providerRefundRef ?? ''}>
+                      {t.providerRefundRef ?? '—'}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] border-b border-[#F3F4F6] font-ds-mono tabular">
+                      {t.parentTransactionId && orderByPi.get(t.parentTransactionId) ? (
+                        <a href={`/orders/${orderByPi.get(t.parentTransactionId)!.orderId}`} class="text-ds-ink hover:underline no-underline">{orderByPi.get(t.parentTransactionId)!.orderNumber}</a>
+                      ) : (
+                        <span class="text-ds-muted">—</span>
+                      )}
+                    </td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] text-right font-ds-mono tabular whitespace-nowrap">
+                      {new Date(t.createdAt).toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div class="px-6 py-3 flex items-center justify-between border-t border-ds-line bg-ds-surface2 text-[12px] text-ds-muted">
+          <div>
+            Page <span class="font-ds-mono tabular">{page}</span> of <span class="font-ds-mono tabular">{totalPages}</span>
+          </div>
+          <div class="flex items-center gap-1">
+            {page > 1 ? (
+              <a href={pageHref(page - 1)} class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">Prev</a>
+            ) : (
+              <span class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-faint">Prev</span>
+            )}
+            {page < totalPages ? (
+              <a href={pageHref(page + 1)} class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">Next</a>
+            ) : (
+              <span class="inline-flex items-center justify-center rounded-[6px] h-7 px-2 text-[12px] bg-ds-card border border-ds-line text-ds-faint">Next</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+</DashboardLayout>

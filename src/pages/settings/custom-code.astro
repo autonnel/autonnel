@@ -1,0 +1,37 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import CustomCodeManager from '@/components/settings/CustomCodeManager';
+import { makeSiteConfig } from '@/composition/make-site-config';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_CUSTOM_CODE)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const rawScripts = await makeSiteConfig().scripts.list().catch(() => []);
+const initialScripts = rawScripts.map((s) => ({
+  id: s.id,
+  name: s.name,
+  position: s.position,
+  content: s.content,
+  enabled: s.enabled,
+  order: s.order,
+}));
+---
+
+<DashboardLayout
+  title="Custom Code"
+  activeNav="settings.custom-code"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <CustomCodeManager client:load initialScripts={initialScripts} />
+  </div>
+</DashboardLayout>

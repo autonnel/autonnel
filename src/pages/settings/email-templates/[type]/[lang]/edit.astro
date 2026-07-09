@@ -1,0 +1,91 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import EmailTemplateEditor from '@/components/email/EmailTemplateEditor';
+import { getDefaultTemplate } from '@/lib/email-templates/default-templates';
+import { messagingKeyForType } from '@/lib/email-templates/template-key-map';
+import { EMAIL_TEMPLATE_VARIABLES } from '@/lib/email-templates/variables';
+import { makeMessaging } from '@/composition/make-messaging';
+import { getConfig } from '@/lib/config/get-config';
+import { ChannelType } from '@/modules/messaging/domain/value-objects';
+
+// Editor seeds from the persisted per-tenant override when one exists, else from built-in defaults.
+type EmailTemplateType =
+  | 'ORDER_RECEIPT'
+  | 'ORDER_SHIPPED'
+  | 'ORDER_DELIVERED'
+  | 'ORDER_REFUNDED'
+  | 'RECALL_1'
+  | 'RECALL_2'
+  | 'RECALL_3';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_EMAIL)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const VALID_TYPES = ['ORDER_RECEIPT', 'ORDER_SHIPPED', 'ORDER_DELIVERED', 'ORDER_REFUNDED', 'RECALL_1', 'RECALL_2', 'RECALL_3'] as const;
+const VALID_LANGS = ['en', 'fr', 'de', 'es'] as const;
+
+const type = Astro.params.type as EmailTemplateType;
+const lang = Astro.params.lang as 'en' | 'fr' | 'de' | 'es';
+
+if (!VALID_TYPES.includes(type as (typeof VALID_TYPES)[number])) {
+  return Astro.redirect('/settings/email-templates');
+}
+if (!VALID_LANGS.includes(lang as (typeof VALID_LANGS)[number])) {
+  return Astro.redirect(`/settings/email-templates/${type}/en/edit`);
+}
+
+const def = await getDefaultTemplate(type as never, lang);
+const initialData: { name: string; subject: string; design: unknown; content: string } = {
+  name: def.name,
+  subject: def.subject,
+  design: def.design,
+  content: def.content,
+};
+
+// Prefer a saved customization: published override (subject) + KV-stored easy-email design.
+try {
+  const msgKey = messagingKeyForType(type);
+  const tpl = await makeMessaging().manageTemplate.getTemplate(msgKey);
+  const override = tpl?.versions.find(
+    (v) => v.published && v.channel === ChannelType.EMAIL && v.locale === lang,
+  );
+  if (override) {
+    initialData.subject = override.subject;
+    const savedDesign = await getConfig(`email_template.design.${msgKey}.${lang}`);
+    if (savedDesign !== undefined && savedDesign !== null) initialData.design = savedDesign;
+  }
+} catch {
+  // fall back to defaults if the messaging lookup fails
+}
+
+const availableVariables = EMAIL_TEMPLATE_VARIABLES.map((v) => ({
+  key: String(v.key),
+  label: v.label,
+  category: v.category,
+  example: v.example,
+}));
+---
+
+<DashboardLayout
+  title={`Edit ${initialData.name} (${lang})`}
+  activeNav="settings.email-templates"
+  hideHeading
+>
+  <EmailTemplateEditor
+    client:only="react"
+    templateType={type}
+    language={lang}
+    initialData={initialData}
+    availableVariables={availableVariables}
+  />
+</DashboardLayout>

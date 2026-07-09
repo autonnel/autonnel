@@ -1,0 +1,130 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { loadSystemActivity, type ActivityEntry } from '@/lib/dashboard/system-activity';
+import { relativeTime } from '@/lib/dashboard/overview-helpers';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.SETTINGS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const RANGE_OPTIONS = [
+  { key: '1d', label: 'Last 24 hours', days: 1 },
+  { key: '7d', label: 'Last 7 days',  days: 7 },
+  { key: '30d', label: 'Last 30 days', days: 30 },
+] as const;
+type RangeKey = (typeof RANGE_OPTIONS)[number]['key'];
+
+const requested = Astro.url.searchParams.get('range') ?? '7d';
+const activeRange =
+  RANGE_OPTIONS.find((r) => r.key === requested) ?? RANGE_OPTIONS[1];
+
+const now = new Date();
+const windowMs = activeRange.days * 24 * 60 * 60 * 1000;
+
+let activity: ActivityEntry[] = [];
+let loadError: string | null = null;
+try {
+  activity = await loadSystemActivity(now, 200, { windowMs });
+} catch (err) {
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+function toneChipClasses(tone: ActivityEntry['tone']): string {
+  switch (tone) {
+    case 'ok':        return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+    case 'bad':       return 'bg-ds-badBg border-ds-badBorder text-ds-badText';
+    case 'highlight': return 'bg-[#EEF2FF] border-[#C7D2FE] text-[#3730A3]';
+    case 'muted':
+    default:          return 'bg-ds-surface2 border-ds-line text-ds-muted';
+  }
+}
+
+function rangeButtonClasses(key: RangeKey): string {
+  const base =
+    'inline-flex items-center px-2.5 py-[5px] text-[12px] font-medium border border-ds-line first:rounded-l-md last:rounded-r-md -ml-px first:ml-0';
+  return key === activeRange.key
+    ? `${base} bg-ds-surface2 text-ds-ink`
+    : `${base} bg-ds-card text-ds-muted hover:text-ds-ink hover:bg-ds-surface2`;
+}
+---
+
+<DashboardLayout
+  title="Logs"
+  activeNav="settings.logs"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+      <div class="min-w-0">
+        <div class="text-[14px] font-semibold text-ds-ink">System activity</div>
+        <div class="text-[12.5px] text-ds-muted mt-0.5">
+          Aggregated business events (orders, refunds, recall emails, fulfillments, failed payments &amp; notifications). Scheduled-job execution traces are written to stdout — check your process logs or log aggregator.
+        </div>
+      </div>
+      <div class="inline-flex" role="group" aria-label="Time range">
+        {RANGE_OPTIONS.map((opt) => (
+          <a href={`?range=${opt.key}`} class={rangeButtonClasses(opt.key)}>{opt.label}</a>
+        ))}
+      </div>
+    </div>
+
+    {loadError && (
+      <div class="mx-6 mb-4 px-3 py-2 rounded-md border border-ds-badBorder bg-ds-badBg text-[12.5px] text-ds-badText">
+        Failed to load activity: <span class="font-ds-mono">{loadError}</span>
+      </div>
+    )}
+
+    {!loadError && activity.length === 0 ? (
+      <div class="px-6 py-12 text-center">
+        <div class="text-[13px] text-ds-ink font-medium">No matching activity in the {activeRange.label.toLowerCase()}</div>
+        <div class="text-[12.5px] text-ds-muted mt-1.5 max-w-md mx-auto">
+          This feed only surfaces business anomalies and notable events — failed payments, refunds, recall emails, shipping updates and failed notifications. Routine successful operations don't appear here. Try a wider time range, or check the relevant tabs (Orders, Transactions, Email Templates) directly.
+        </div>
+      </div>
+    ) : !loadError && (
+      <>
+      <div class="px-6 pb-3 text-[11.5px] text-ds-muted">
+        Showing <span class="font-ds-mono tabular">{activity.length}</span> event{activity.length === 1 ? '' : 's'} from the {activeRange.label.toLowerCase()}.
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse">
+          <thead class="bg-ds-surface2 border-b border-ds-line">
+            <tr>
+              <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Time</th>
+              <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Kind</th>
+              <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Description</th>
+              <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activity.map((entry) => (
+              <tr class="hover:bg-ds-surface2 transition-colors">
+                <td class="px-4 py-3 text-[12.5px] text-ds-muted border-b border-[#F3F4F6] font-ds-mono tabular whitespace-nowrap">
+                  {relativeTime(entry.ts, now)}
+                </td>
+                <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                  <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] font-medium leading-none ${toneChipClasses(entry.tone)}`}>
+                    {entry.kind}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-[13px] text-ds-ink border-b border-[#F3F4F6]">
+                  <div class="truncate max-w-[480px]" title={entry.text}>{entry.text}</div>
+                </td>
+                <td class="px-4 py-3 text-[12.5px] text-ds-slate border-b border-[#F3F4F6] font-ds-mono tabular">
+                  <div class="truncate max-w-[320px]" title={entry.payload}>{entry.payload}</div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      </>
+    )}
+  </div>
+</DashboardLayout>

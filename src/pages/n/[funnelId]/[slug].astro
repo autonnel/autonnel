@@ -1,0 +1,94 @@
+---
+import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { getRedirectFromCache, setRedirectInCache } from '@/lib/adapters/cache';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('FunnelRedirect');
+
+const { funnelId, slug } = Astro.params;
+
+if (!funnelId || !slug) {
+  return new Response('FunnelId and slug are required', { status: 400 });
+}
+
+interface FunnelStepJson {
+  stepSlug?: string;
+  pageId?: string;
+}
+
+const cacheKey = `${funnelId}:${slug}`;
+let redirectData = await getRedirectFromCache(cacheKey);
+
+if (!redirectData) {
+  const db = getTenantPrisma();
+  const funnel = (await db.funnel.findFirst({
+    where: { id: funnelId },
+    select: { id: true, steps: true },
+  })) as { id: string; steps: unknown } | null;
+
+  const steps = Array.isArray(funnel?.steps) ? (funnel!.steps as FunnelStepJson[]) : [];
+  const currentIndex = steps.findIndex((s) => s?.stepSlug === slug);
+
+  if (currentIndex === -1) {
+    return new Response('Redirect not found', { status: 404 });
+  }
+
+  const nextStep = currentIndex < steps.length - 1 ? steps[currentIndex + 1] : null;
+  if (!nextStep?.pageId) {
+    return new Response('No next step in funnel', { status: 404 });
+  }
+
+  const nextPage = (await db.page.findFirst({
+    where: { id: nextStep.pageId },
+    select: { slug: true },
+  })) as { slug: string } | null;
+
+  if (!nextPage) {
+    return new Response('Next page not found', { status: 404 });
+  }
+
+  const normalizedSlug = nextPage.slug.startsWith('/') ? nextPage.slug : `/${nextPage.slug}`;
+
+  // Relative target keeps navigation on the current host (anid cookie is domain-scoped).
+  const targetUrl = normalizedSlug;
+
+  redirectData = {
+    targetUrl,
+    funnelId,
+    pageType: '',
+    nextStepUrl: null,
+    sourcePageId: steps[currentIndex]?.pageId ?? undefined,
+  };
+
+  await setRedirectInCache(cacheKey, redirectData);
+}
+
+if (!redirectData) {
+  return new Response('Redirect not found', { status: 404 });
+}
+
+let finalUrl = redirectData.targetUrl;
+
+const incomingUrl = new URL(Astro.request.url);
+const params = new URLSearchParams(incomingUrl.searchParams);
+// Identity travels via the domain-scoped anid cookie; stop re-stamping it into URLs.
+params.delete('anid');
+params.delete('goid');
+params.set('funnelId', funnelId);
+
+if (params.toString()) {
+  const separator = finalUrl.includes('?') ? '&' : '?';
+  finalUrl = `${finalUrl}${separator}${params.toString()}`;
+}
+
+logger.info('Funnel redirect', { funnelId, stepSlug: slug, targetUrl: finalUrl });
+
+return new Response(null, {
+  status: 302,
+  headers: {
+    'Location': finalUrl,
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Referrer-Policy': 'no-referrer-when-downgrade',
+  },
+});
+---

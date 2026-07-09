@@ -1,0 +1,18 @@
+---
+import AuthLayout from '@/layouts/AuthLayout.astro';
+---
+
+<AuthLayout title="Signing out">
+  <main class="min-h-screen flex items-center justify-center bg-ds-bg p-6">
+    <p class="text-[13px] text-ds-muted">Signing out…</p>
+  </main>
+</AuthLayout>
+
+<script is:inline>
+  (async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    window.location.href = '/login';
+  })();
+</script>

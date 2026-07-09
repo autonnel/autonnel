@@ -1,0 +1,20 @@
+---
+import ErrorLayout from '@/components/layout/ErrorLayout.astro';
+
+Astro.response.status = 404;
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+const url = new URL(Astro.request.url);
+const slug = url.pathname || '/';
+---
+
+<ErrorLayout
+  status={404}
+  title="Page not found"
+  heading="Page not found"
+  description="The page you're looking for doesn't exist or has been moved."
+  detail={slug}
+  detailLabel="Path"
+>
+  <a href="/" class="btn-primary">Go home</a>
+</ErrorLayout>

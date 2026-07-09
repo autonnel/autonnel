@@ -1,0 +1,220 @@
+---
+import { checkAuth } from '@/lib/auth/middleware';
+import { getCurrentTenantId } from '@/lib/tenant/context';
+import { getBrandingName, getBrandingFavicon } from '@/lib/config/keys';
+import { findPageIncludingDrafts, getOrderDataForThankYou } from '@/lib/storefront/storefront-data.service';
+import { getFunnelStepUrlForPageInFunnel } from '@/lib/funnel-next-step';
+import { resolveFunnelCtaLinksInPuckData } from '@/lib/puck/resolve-funnel-cta-links';
+import { getPaymentProviderEntryWithCredentials } from '@/lib/config/payment';
+import HtmlEditorPageLayout from '@/layouts/HtmlEditorPageLayout.astro';
+import Tracking from '@/components/storefront/Tracking.astro';
+import { PreviewRenderer } from '@/components/builder/PreviewRenderer';
+import { migratePuckData } from '@/components/builder/migrate-keys';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const pageSlug = Astro.params.slug ?? '';
+const url = new URL(Astro.request.url);
+const funnelIdFromQuery = url.searchParams.get('funnelId');
+
+const tenantId = getCurrentTenantId();
+const [brandingName, brandingFavicon] = await Promise.all([getBrandingName(), getBrandingFavicon()]);
+const tenant = {
+  id: tenantId,
+  name: brandingName ?? null,
+  favicon: brandingFavicon ?? null,
+};
+
+const page = await findPageIncludingDrafts(pageSlug);
+if (!page) {
+  return new Response('Page not found', { status: 404 });
+}
+
+const puckData: any = migratePuckData(page.draftData || page.publishedData);
+const htmlContent: string = (page.draftHtml ?? page.htmlContent) || '';
+const pageSettings: any = (page.draftSettings ?? page.settings) || {};
+const pageCssContent: string = pageSettings.cssContent || '';
+const pageBodyScripts: string = pageSettings.bodyScripts || '';
+const pageHeadContent: string = pageSettings.headContent || '';
+const isHtmlEditor = page.editorType === 'HTML';
+
+const meta: any = page.meta || {};
+const tenantName = tenant.name ?? 'Site';
+const pageTitle = meta.title || page.name || tenantName;
+const pageDescription = meta.description || '';
+
+const faviconValue: any = tenant.favicon;
+const v: Record<string, string | undefined> = faviconValue?.variants || {};
+const pvFaviconParts: string[] = [];
+if (v['favicon.ico']) {
+  pvFaviconParts.push(`<link rel="icon" href="${v['favicon.ico']}" sizes="32x32" />`);
+}
+if (v['favicon-16x16.png']) {
+  pvFaviconParts.push(`<link rel="icon" type="image/png" sizes="16x16" href="${v['favicon-16x16.png']}" />`);
+}
+if (v['favicon-32x32.png']) {
+  pvFaviconParts.push(`<link rel="icon" type="image/png" sizes="32x32" href="${v['favicon-32x32.png']}" />`);
+}
+if (v['apple-touch-icon.png']) {
+  pvFaviconParts.push(`<link rel="apple-touch-icon" sizes="180x180" href="${v['apple-touch-icon.png']}" />`);
+}
+if (v['android-chrome-192x192.png']) {
+  pvFaviconParts.push(`<link rel="icon" type="image/png" sizes="192x192" href="${v['android-chrome-192x192.png']}" />`);
+}
+const pvFaviconHtml = pvFaviconParts.join('\n  ');
+
+const { stepUrl: funnelCtaUrl } = await getFunnelStepUrlForPageInFunnel(page.id, funnelIdFromQuery);
+const resolvedPuckData = resolveFunnelCtaLinksInPuckData(puckData, funnelCtaUrl);
+
+const appClientId = process.env.PAYPAL_APP_CLIENT_ID || import.meta.env.PAYPAL_APP_CLIENT_ID || '';
+const paymentConfig: { paypal: any } = { paypal: null };
+let paypalEntry: any = null;
+if (page.type === 'CHECKOUT' || page.type === 'UPSELL') {
+  paypalEntry = await getPaymentProviderEntryWithCredentials('PAYPAL');
+  if (paypalEntry && paypalEntry.isActive) {
+    const creds: any = paypalEntry.credentials || {};
+    const settings: any = paypalEntry.settings || {};
+    paymentConfig.paypal = {
+      clientId: creds.clientId || creds.client_id || appClientId,
+      merchantId: creds.merchantIdInPayPal || '',
+      mode: creds.mode || settings.mode || 'sandbox',
+      currency: settings.currency || 'USD',
+      enableCardFields: settings.enableCardFields || false,
+    };
+  }
+}
+
+if (paymentConfig.paypal && puckData) {
+  const scanComponents = (comps: any): string | null => {
+    if (!Array.isArray(comps)) return null;
+    for (const c of comps) {
+      if (!c || typeof c !== 'object') continue;
+      if (c.type === 'VariantSelector') {
+        const sel = c.props?.selectedItems;
+        const currency = (sel && !Array.isArray(sel) && sel.currency) || sel?.[0]?.currency || null;
+        if (currency) return currency;
+      } else if (c.props && typeof c.props === 'object') {
+        for (const val of Object.values(c.props)) {
+          if (Array.isArray(val) && val.length && val[0]?.type && val[0]?.props) {
+            const found = scanComponents(val);
+            if (found) return found;
+          }
+        }
+      }
+    }
+    return null;
+  };
+  let productCurrency = scanComponents(puckData.content);
+  if (!productCurrency && puckData.zones) {
+    productCurrency = Object.values(puckData.zones).reduce(
+      (acc: string | null, zone: any) => acc || scanComponents(zone),
+      null as string | null,
+    );
+  }
+  if (productCurrency) {
+    paymentConfig.paypal.currency = productCurrency;
+  }
+}
+
+const googleMapsApiKey = import.meta.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
+const paypalIntent = 'capture';
+
+const previewOrderId = page.type === 'THANKYOU' ? url.searchParams.get('orderId') : null;
+const ssrOrderData = previewOrderId ? await getOrderDataForThankYou(previewOrderId) : null;
+---
+{isHtmlEditor ? (
+  <HtmlEditorPageLayout
+    tenantId={tenant.id}
+    tenantName={tenantName}
+    pageId={page.id}
+    pageTitle={pageTitle}
+    pageDescription={pageDescription}
+    favicon={tenant.favicon}
+    rawHtmlContent={htmlContent}
+    pageCssContent={pageCssContent}
+    pageBodyScripts={pageBodyScripts}
+    showDraftBanner={true}
+    draftBannerText="Draft Preview Mode"
+  />
+) : (
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>{pageTitle}</title>
+      {pageDescription && <meta name="description" content={pageDescription} />}
+      <Fragment set:html={pvFaviconHtml} />
+      <meta property="og:title" content={pageTitle} />
+      <meta property="og:description" content={pageDescription} />
+      {meta.ogImage && <meta property="og:image" content={meta.ogImage} />}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+      />
+      {pageHeadContent && <Fragment set:html={pageHeadContent} />}
+      <style>
+        {`
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+        `}
+      </style>
+    </head>
+    <body>
+      <div
+        style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1f2937;color:#fff;font-size:13px;text-align:center;padding:6px 12px;"
+      >
+        Draft Preview Mode
+      </div>
+      <script
+        is:inline
+        set:html={`
+          window.__AUTONNEL_API_BASE__ = ${JSON.stringify(url.origin)};
+          window.__AUTONNEL_SITE_NAME__ = ${JSON.stringify(tenantName)};
+        `}
+      />
+      <Tracking />
+      <script
+        is:inline
+        set:html={`
+          window.__AUTONNEL_PRODUCTS__ = window.__AUTONNEL_PRODUCTS__ || [];
+          window.__AUTONNEL_PAGE_ID__ = ${JSON.stringify(page.id)};
+          window.__AUTONNEL_PAGE_TYPE__ = ${JSON.stringify(page.type)};
+          window.__FUNNEL_CTA_URL__ = ${JSON.stringify(funnelCtaUrl)};
+          window.__FUNNEL_NEXT_STEP_URL__ = ${JSON.stringify(funnelCtaUrl)};
+          window.__PAYMENT_CONFIG__ = ${JSON.stringify(paymentConfig)};
+          window.__PAYPAL_CLIENT_ID__ = ${JSON.stringify(paymentConfig.paypal?.clientId || '')};
+          window.__GOOGLE_MAPS_API_KEY__ = ${JSON.stringify(googleMapsApiKey)};
+        `}
+      />
+      {paymentConfig.paypal?.clientId && (
+        <script
+          is:inline
+          src={`https://www.paypal.com/sdk/js?client-id=${paymentConfig.paypal.clientId}&currency=${paymentConfig.paypal.currency || 'USD'}&intent=${paypalIntent}${paymentConfig.paypal.merchantId ? `&merchant-id=${paymentConfig.paypal.merchantId}` : ''}${paymentConfig.paypal.enableCardFields ? '&components=buttons,card-fields' : ''}`}
+        />
+      )}
+      {googleMapsApiKey && (
+        <script
+          async
+          src={`https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`}
+        />
+      )}
+      {puckData ? (
+        <PreviewRenderer client:only="react" data={resolvedPuckData} />
+      ) : (
+        <div id="puck-root"></div>
+      )}
+      {ssrOrderData && (
+        <script is:inline define:vars={{ orderData: ssrOrderData }}>window.__AUTONNEL_ORDER__ = orderData;</script>
+      )}
+      {puckData && (
+        <script is:inline define:vars={{ puckData: resolvedPuckData }}>window.__PUCK_DATA__ = puckData;</script>
+      )}
+      {pageBodyScripts && <Fragment set:html={pageBodyScripts} />}
+    </body>
+  </html>
+)}

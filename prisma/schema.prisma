@@ -1,0 +1,845 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum DispatchStrategy {
+  INLINE_WAIT_UNTIL
+  CRON_POLL
+}
+
+model Job {
+  id             String           @id @default(cuid())
+  tenantId       String
+  kind           String
+  status         JobStatus        @default(PENDING)
+  dispatch       DispatchStrategy @default(INLINE_WAIT_UNTIL)
+  payload        Json
+  result         Json?
+  externalRef    String?
+  idempotencyKey String?
+  attemptCount   Int              @default(0)
+  maxAttempts    Int              @default(5)
+  runAfter       DateTime         @default(now())
+  leaseExpiry    DateTime?
+  failureReason  String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([tenantId, kind, idempotencyKey])
+  @@index([status, runAfter])
+  @@map("jobs")
+}
+
+model JobOutbox {
+  id             String    @id @default(cuid())
+  tenantId       String
+  eventId        String    @unique
+  type           String
+  payload        Json
+  correlation    Json
+  occurredAt     DateTime
+  publishedAt    DateTime?
+  attemptCount   Int       @default(0)
+  failedAt       DateTime?
+  nextRetryAt    DateTime?
+  lastError      String?
+  deadLetteredAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([publishedAt, createdAt])
+  @@map("job_outbox")
+}
+
+model ConfigEntry {
+  tenantId       String
+  configKey      String
+  value          Json
+  isSecret       Boolean  @default(false)
+  ownerNamespace String?
+  updatedAt      DateTime @updatedAt
+
+  @@id([tenantId, configKey])
+  @@map("config_entries")
+}
+
+// Email uniqueness is GLOBAL: User has no tenantId; lookups bypass the tenant extension.
+model User {
+  id                         String    @id @default(cuid())
+  email                      String    @unique
+  credentialHash             String
+  status                     String    @default("active")
+  emailVerifiedAt            DateTime?
+  verificationToken          String?
+  verificationTokenExpiresAt DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  roleIds   String[]
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  grants      String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@map("roles")
+}
+
+model Invitation {
+  id             String   @id @default(cuid())
+  tenantId       String
+  email          String
+  invitedRoleIds String[]
+  status         String   @default("pending")
+  tokenHash      String   @unique
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("invitations")
+}
+
+// keyHash uniqueness is GLOBAL: auth resolves a Bearer key without a tenant context.
+model ApiKey {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String?
+  prefix      String
+  keyHash     String    @unique
+  status      String    @default("active")
+  scope       String[]
+  writeAccess Boolean   @default(false)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+model Session {
+  id                String   @id @default(cuid())
+  tenantId          String
+  userId            String
+  activeTenantId    String
+  status            String   @default("active")
+  absoluteExpiresAt DateTime
+  idleExpiresAt     DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// tenantId is a plain scalar on every model (the Prisma tenant extension injects it); there is no Tenant table and no FK to it. Page/Funnel publications live in Postgres; the edge cache is written by PublicationStoreAdapter, not Prisma.
+
+model Page {
+  id                  String      @id @default(cuid())
+  tenantId            String
+  name                String      @default("")
+  slug                String
+  type                String
+  editorType          String      @default("PUCK")
+  status              String      @default("DRAFT")
+  publishedAt         DateTime?
+  templateName        String?
+  draftDocument       Json?
+  draftBindings       Json        @default("[]")
+  seo                 Json        @default("{}")
+  draftRevisionId     String?
+  publishedRevisionId String?
+  publishState        String      @default("draft")
+  draftData           Json?
+  publishedData       Json?
+  htmlContent         String?
+  draftHtml           String?
+  draftSettings       Json?
+  settings            Json?
+  meta                Json?
+  planContent         Json?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  assets              PageAsset[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("pages")
+}
+
+model PageAsset {
+  id          String   @id @default(cuid())
+  tenantId    String
+  pageId      String
+  path        String
+  url         String
+  s3Key       String
+  fileSize    Int
+  contentType String
+  createdAt   DateTime @default(now())
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, pageId])
+  @@map("page_assets")
+}
+
+// messages is a JSON array of { role, text, images? }.
+model AiChatSession {
+  id        String   @id @default(cuid())
+  tenantId  String
+  pageId    String
+  title     String
+  messages  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, pageId])
+  @@map("ai_chat_sessions")
+}
+
+model Funnel {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  name                 String
+  description          String?
+  steps                Json     @default("[]")
+  transitions          Json     @default("[]")
+  publishState         String   @default("draft")
+  publishedPinnedPages Json     @default("[]")
+  publishedVersion     Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("funnels")
+}
+
+model Experiment {
+  id          String          @id @default(cuid())
+  tenantId    String
+  funnelId    String
+  name        String
+  status      String          @default("draft")
+  goal        Json
+  winnerArmId String?
+  startedAt   DateTime?
+  concludedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  arms        ExperimentArm[]
+
+  @@index([tenantId, funnelId])
+  @@map("experiments")
+}
+
+model ExperimentArm {
+  id             String     @id @default(cuid())
+  tenantId       String
+  experimentId   String
+  name           String
+  isControl      Boolean    @default(false)
+  weight         Int        @default(50)
+  targetFunnelId String?
+  targetPageId   String?
+  order          Int        @default(0)
+  experiment     Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, experimentId])
+  @@map("experiment_arms")
+}
+
+// Persisted arm assignment: keeps a visitor on the same arm for the experiment's lifetime so that
+// changing arm weights only re-buckets new visitors. Unique per (tenant, experiment, visitor).
+model AbTestAssignment {
+  id           String   @id @default(cuid())
+  tenantId     String
+  experimentId String
+  trackingId   String
+  armId        String
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, experimentId, trackingId])
+  @@index([tenantId, experimentId])
+  @@map("ab_test_assignments")
+}
+
+model FunnelScript {
+  id        String         @id @default(cuid())
+  tenantId  String
+  funnelId  String
+  name      String
+  content   String
+  position  ScriptPosition @default(HEAD)
+  isActive  Boolean        @default(true)
+  order     Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([tenantId, funnelId])
+  @@map("funnel_scripts")
+}
+
+model Template {
+  id         String   @id @default(cuid())
+  tenantId   String
+  scope      String
+  body       Json
+  slots      Json     @default("[]")
+  visibility String   @default("tenant")
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("templates")
+}
+
+model PagePublication {
+  id          String   @id @default(cuid())
+  tenantId    String
+  pageId      String
+  version     Int
+  contentHash String
+  document    Json
+  seo         Json     @default("{}")
+  slug        String
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, pageId, version])
+  @@index([tenantId, pageId])
+  @@map("page_publications")
+}
+
+model FunnelPublication {
+  id            String   @id @default(cuid())
+  tenantId      String
+  funnelId      String
+  version       Int
+  contentHash   String
+  entryStepSlug String
+  pinnedPages   Json
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, funnelId, version])
+  @@index([tenantId, funnelId])
+  @@map("funnel_publications")
+}
+
+model CatalogProductView {
+  id                 String               @id @default(cuid())
+  tenantId           String
+  backendKind        String
+  externalProductRef String
+  title              String
+  status             String
+  deletedAtSource    DateTime?
+  mediaRefs          Json
+  syncCursor         String?
+  syncedAt           DateTime
+  variants           CatalogVariantView[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([tenantId, backendKind, externalProductRef])
+  @@index([tenantId, backendKind])
+  @@map("catalog_product_views")
+}
+
+model CatalogVariantView {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  productViewId      String
+  product            CatalogProductView @relation(fields: [productViewId], references: [id], onDelete: Cascade)
+  externalVariantRef String
+  title              String
+  sku                String?
+  presentmentPrices  Json
+  inventoryAvailable Int?
+  inventoryPolicy    String
+  inventoryAsOf      DateTime
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([tenantId, externalVariantRef])
+  @@index([productViewId])
+  @@map("catalog_variant_views")
+}
+
+model PaymentIntent {
+  id               String        @id @default(cuid())
+  tenantId         String
+  saleRef          String
+  provider         String
+  amountMinor      Int
+  currencyCode     String
+  captureMethod    String
+  status           String
+  providerIntentId String?
+  // capture result (present iff CAPTURED)
+  providerChargeId String?
+  capturedMinor    Int?
+  feeMinor         Int?
+  cardBrand        String?
+  cardNetwork      String?
+  last4            String?
+  capturedAt       DateTime?
+  checkoutSnapshot Json?
+  // Vault for one-click post-purchase upsells: saved so later off-session charges (Stripe) /
+  // deferred capture (PayPal) can reuse the buyer's payment method without re-entry.
+  stripeCustomerId      String?
+  stripePaymentMethodId String?
+  // PayPal merged upsells: the order is approved (AUTHORIZED) but capture is held until the buyer
+  // leaves the upsell chain, so accepted upsells can be PATCHed into the same order before one capture.
+  captureDeferred       Boolean       @default(false)
+  // Stripe merged upsells: base is captured at checkout (separate charges per upsell), but the single
+  // ecommerce push is HELD until the upsell chain ends so one merged order is pushed (not one per charge).
+  handoffDeferred       Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  refunds          Transaction[]
+
+  @@unique([provider, providerIntentId])
+  @@unique([tenantId, saleRef])
+  @@index([status, updatedAt])
+  @@map("payment_intents")
+}
+
+model Transaction {
+  id                  String         @id @default(cuid())
+  tenantId            String
+  type                String // CHARGE | REFUND
+  status              String
+  parentTransactionId String?
+  intent              PaymentIntent? @relation(fields: [parentTransactionId], references: [id])
+  refundKind          String? // full | fixed | percentage
+  amountMinor         Int
+  currencyCode        String
+  provider            String
+  providerRefundRef   String?
+  // The provider charge id this row belongs to: its own charge id for a CHARGE, the charge a REFUND
+  // was issued against. Lets a merged-upsell intent (N charges) track + refund each charge separately.
+  chargeRef           String?
+  idempotencyKey      String
+  reason              String?
+  createdAt           DateTime       @default(now())
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([parentTransactionId])
+  @@map("transactions")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+model Order {
+  id              String      @id
+  tenantId        String
+  orderNumber     String
+  saleRef         String
+  status          OrderStatus @default(PAID)
+  capturedTotal   Int
+  currencyCode    String
+  customerEmail   String
+  customerName    String?
+  customerPhone   String?
+  checkoutLanguage String?
+  lines           Json
+  trackingCarrier String?
+  trackingNumber  String?
+  trackingUrl     String?
+  refunds         Json        @default("[]")
+  backendOrderRef String?
+  attribution     Json?
+  note            String?
+  contactChannel    String?
+  contactNormalized String?
+  hashedIdentity    String?
+  address           Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([tenantId, saleRef])
+  @@index([tenantId, status])
+  @@map("orders")
+}
+
+model MessageTemplate {
+  id          String                   @id @default(cuid())
+  tenantId    String
+  templateKey String
+  versions    MessageTemplateVersion[]
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  @@unique([tenantId, templateKey])
+  @@index([tenantId])
+}
+
+model MessageTemplateVersion {
+  id         String          @id @default(cuid())
+  tenantId   String
+  templateId String
+  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  versionId  String
+  channel    String
+  locale     String
+  subject    String
+  html       String          @db.Text
+  text       String          @db.Text
+  variables  Json
+  published  Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+
+  @@unique([tenantId, templateId, versionId])
+  @@index([tenantId, templateId, channel, locale, published])
+}
+
+model Dispatch {
+  id                String    @id @default(cuid())
+  tenantId          String
+  idempotencyKey    String
+  channel           String
+  recipient         String
+  templateKey       String
+  templateVersionId String
+  senderIdentityId  String
+  status            String
+  attemptCount      Int       @default(0)
+  providerSlug      String?
+  providerMessageId String?
+  lastError         String?
+  sourceContext     String
+  sourceEventId     String?
+  traceId           String?
+  renderedSubject   String?
+  renderedHtml      String?   @db.Text
+  renderedText      String?   @db.Text
+  renderedHeaders   Json?
+  nextRetryAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, providerMessageId])
+  @@index([tenantId, status, nextRetryAt])
+}
+
+model MessageSuppression {
+  id                String   @id @default(cuid())
+  tenantId          String
+  channel           String
+  normalizedAddress String
+  reason            String
+  source            String
+  active            Boolean  @default(true)
+  unsuppressedBy    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([tenantId, channel, normalizedAddress])
+  @@index([tenantId, channel, active])
+}
+
+model RecallCampaign {
+  id                String          @id @default(cuid())
+  tenantId          String
+  name              String
+  status            String          @default("draft")
+  campaignVersion   Int             @default(1)
+  recallWindowHours Int
+  enabledChannels   String[]
+  frequencyCap      Json
+  eligibility       Json
+  stopConditions    Json
+  steps             Json
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  attempts          RecallAttempt[]
+
+  @@index([tenantId, status])
+  @@map("recall_campaigns")
+}
+
+model RecallAttempt {
+  id                 String         @id @default(cuid())
+  tenantId           String
+  checkoutRef        String
+  campaignRef        String
+  campaignVersionRef Int
+  dedupeKey          String
+  status             String         @default("active")
+  nextStepIndex      Int            @default(0)
+  contact            Json
+  incentiveRef       String?
+  frequencyCapMax    Int
+  enrolledAt         DateTime       @default(now())
+  nextDueAt          DateTime?
+  leaseUntil         DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  campaign           RecallCampaign @relation(fields: [campaignRef], references: [id])
+  touches            RecallTouch[]
+
+  @@unique([tenantId, dedupeKey])
+  @@index([tenantId, status, nextDueAt])
+  @@map("recall_attempts")
+}
+
+model RecallTouch {
+  id                String        @id @default(cuid())
+  tenantId          String
+  attemptId         String
+  touchId           String
+  stepIndex         Int
+  channel           String
+  scheduledFor      DateTime
+  firedAt           DateTime?
+  messageHandoffRef String?
+  deliveryOutcome   String        @default("pending")
+  engagementOutcome String        @default("none")
+  createdAt         DateTime      @default(now())
+  attempt           RecallAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, attemptId, touchId])
+  @@index([tenantId, messageHandoffRef])
+  @@map("recall_touches")
+}
+
+model RecallSuppression {
+  id         String    @id @default(cuid())
+  tenantId   String
+  scope      String
+  subjectKey String
+  reason     String
+  source     String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+
+  @@unique([tenantId, scope, subjectKey])
+  @@index([tenantId, subjectKey])
+  @@map("recall_suppressions")
+}
+
+model AdAccountConnection {
+  id                   String                    @id
+  tenantId             String
+  platform             String
+  externalAccountId    String
+  status               String
+  accessToken          Json
+  refreshToken         Json
+  accessTokenExpiresAt DateTime
+  grantedScopes        String[]
+  requiredScopes       String[]
+  tokenVersion         Int                       @default(1)
+  destinations         AdConversionDestination[]
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  @@unique([tenantId, platform, externalAccountId])
+  @@index([tenantId])
+}
+
+model AdConversionDestination {
+  id           String              @id
+  tenantId     String
+  connectionId String
+  connection   AdAccountConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  kind         String
+  externalId   String
+  isDefault    Boolean             @default(false)
+
+  @@index([tenantId, connectionId])
+}
+
+model Postback {
+  id            String    @id
+  tenantId      String
+  destinationId String
+  eventId       String
+  status        String
+  attemptCount  Int       @default(0)
+  nextAttemptAt DateTime?
+  providerRef   String?
+  eventSnapshot Json
+  attempts      Json      @default("[]")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, destinationId, eventId])
+  @@index([tenantId, status, nextAttemptAt])
+}
+
+model EventMappingProfile {
+  id        String   @id
+  tenantId  String
+  version   Int
+  isActive  Boolean  @default(false)
+  rules     Json
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, isActive])
+}
+
+model AdAttributionTouch {
+  id        String   @id
+  tenantId  String
+  sessionId String
+  touch     Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, sessionId])
+  @@index([tenantId, expiresAt])
+}
+
+model FunnelAdConnection {
+  id           String   @id @default(cuid())
+  tenantId     String
+  funnelId     String
+  connectionId String
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, funnelId, connectionId])
+  @@index([tenantId, funnelId])
+  @@map("funnel_ad_connections")
+}
+
+// Single append-only event source for all funnel analytics (page_view / add_to_cart / leave /
+// js_error / payment actions / upsell, etc.). Dashboards, stats, diagnostics and attribution query
+// this table directly (joined with orders). Event-specific data lives in `metadata`.
+model UserActivityEvent {
+  id         String   @id @default(cuid())
+  tenantId   String
+  visitorId  String
+  sessionId  String?
+  funnelId   String?
+  pageId     String?
+  stepId     String?
+  kind       String
+  url        String?
+  referrer   String?
+  metadata   Json?
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, visitorId, occurredAt])
+  @@index([tenantId, funnelId, occurredAt])
+  @@map("user_activity_events")
+}
+
+model MediaAsset {
+  id              String   @id
+  tenantId        String
+  storageKey      String
+  mediaType       String
+  contentType     String
+  width           Int?
+  height          Int?
+  durationSeconds Int?
+  jobId           String
+  provider        String
+  modelId         String
+  promptHash      String
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, promptHash])
+}
+
+enum ScriptPosition {
+  HEAD
+  BODY_START
+  BODY_END
+}
+
+model Domain {
+  id        String   @id @default(cuid())
+  tenantId  String
+  host      String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, host])
+  @@index([tenantId])
+  @@map("domains")
+}
+
+model GlobalScript {
+  id        String         @id @default(cuid())
+  tenantId  String
+  name      String
+  content   String
+  position  ScriptPosition @default(HEAD)
+  enabled   Boolean        @default(true)
+  order     Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([tenantId])
+  @@map("global_scripts")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model Coupon {
+  id             String       @id @default(cuid())
+  tenantId       String
+  name           String
+  code           String
+  discountType   DiscountType
+  discountValue  Decimal      @db.Decimal(12, 2)
+  minOrderAmount Decimal?     @db.Decimal(12, 2)
+  maxUsages      Int?
+  usageCount     Int          @default(0)
+  isActive       Boolean      @default(true)
+  expiresAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("coupons")
+}

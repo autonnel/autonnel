@@ -1,0 +1,17 @@
+---
+const year = new Date().getUTCFullYear();
+const commit = typeof __AUTONNEL_COMMIT__ === 'string' ? __AUTONNEL_COMMIT__ : '';
+---
+
+<footer
+  class="sticky bottom-0 z-10 h-10 bg-ds-card border-t border-ds-line flex items-center px-8 gap-4 text-[11.5px] text-ds-muted font-ds-sans"
+>
+  <div class="flex-1"></div>
+
+  <div class="shrink-0 flex items-center gap-2">
+    {commit && (
+      <span class="font-ds-mono text-ds-muted/80" title={`Deployed commit ${commit}`}>{commit}</span>
+    )}
+    <span>&copy; {year} Autonnel &middot; Apache-2.0 licensed</span>
+  </div>
+</footer>

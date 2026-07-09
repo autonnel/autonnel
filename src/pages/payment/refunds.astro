@@ -1,0 +1,6 @@
+---
+const url = new URL(Astro.request.url);
+const params = new URLSearchParams(url.searchParams);
+params.set('tab', 'refunds');
+return Astro.redirect(`/payment?${params.toString()}`);
+---

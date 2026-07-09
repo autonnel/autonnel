@@ -1,0 +1,58 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import RecallSettings from '@/components/settings/RecallSettings';
+import { makeCoupons } from '@/composition/make-coupons';
+import { getRecallKvConfig, DEFAULT_RECALL_INTERVALS } from '@/lib/config/recall';
+
+const EMPTY_RECALL_STATS = {
+  range: '30d' as const,
+  emailsSent: 0,
+  ordersRecovered: 0,
+  recoveryRate: null,
+};
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_RECALL)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const [recallConfig, couponRows] = await Promise.all([
+  getRecallKvConfig().catch(() => null),
+  makeCoupons().list().catch(() => []),
+]);
+const recallStats = EMPTY_RECALL_STATS;
+
+const initialConfig = recallConfig
+  ? {
+      id: recallConfig.id,
+      isEnabled: recallConfig.isEnabled,
+      intervals: recallConfig.intervals,
+    }
+  : {
+      id: null as string | null,
+      isEnabled: false,
+      intervals: DEFAULT_RECALL_INTERVALS,
+    };
+
+const initialCoupons = couponRows.map((c) => ({ id: c.id, name: c.name, code: c.code }));
+---
+
+<DashboardLayout
+  title="Recall"
+  activeNav="settings.recall"
+>
+  <RecallSettings
+    client:load
+    initialConfig={initialConfig}
+    initialCoupons={initialCoupons}
+    initialStats={recallStats}
+  />
+</DashboardLayout>

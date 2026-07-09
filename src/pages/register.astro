@@ -1,0 +1,95 @@
+---
+import AuthLayout from '@/layouts/AuthLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { cn } from '@/lib/utils';
+import { dsFieldClass } from '@/components/primitives/field-styles';
+
+const auth = await checkAuth(Astro);
+if (auth.authenticated) {
+  return Astro.redirect('/overview', 302);
+}
+
+// Invitation links are minted with ?token= (UsersPanel); ?invitation= kept for old links.
+const invitationToken =
+  Astro.url.searchParams.get('token') ?? Astro.url.searchParams.get('invitation') ?? '';
+
+// Registration is invitation-only; the first admin account is created by the
+// /setup wizard (or `npx autonnel admin:create`).
+if (!invitationToken) {
+  return Astro.redirect('/login', 302);
+}
+---
+
+<AuthLayout title="Register">
+  <main class="min-h-screen flex items-center justify-center bg-ds-bg p-6">
+    <div class="w-full max-w-sm">
+      <div class="bg-ds-card border border-ds-line rounded-[12px] p-6 shadow-sm">
+        <h1 class="text-[18px] font-semibold text-ds-ink mb-1">Create account</h1>
+        <p class="text-[12px] text-ds-muted mb-5">
+          You were invited to join. Enter the email address the invitation was sent to and choose a password.
+        </p>
+
+        <form id="register-form" class="flex flex-col gap-3">
+          <input type="hidden" name="invitationToken" value={invitationToken} />
+          <label class="flex flex-col gap-1">
+            <span class="text-[12px] text-ds-muted">Email</span>
+            <input
+              required type="email"
+              autocomplete="username"
+              name="username"
+              class={cn(dsFieldClass)}
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-[12px] text-ds-muted">Password (min 8 chars)</span>
+            <input
+              required minlength="8"
+              autocomplete="new-password"
+              name="password"
+              type="password"
+              class={cn(dsFieldClass)}
+            />
+          </label>
+          <p id="register-error" class="text-[12px] text-red-600 hidden"></p>
+          <button
+            type="submit"
+            class="h-9 px-3 text-[13px] font-medium rounded-[7px] bg-ds-ink text-ds-card hover:bg-[#1F2937] transition-colors"
+          >
+            Create account
+          </button>
+        </form>
+
+        <p class="text-[12px] text-ds-muted mt-4 text-center">
+          Already have an account? Enter its email and your current password — the invitation adds that account to this workspace.
+        </p>
+      </div>
+    </div>
+  </main>
+</AuthLayout>
+
+<script is:inline>
+  const form = document.getElementById('register-form');
+  const errorEl = document.getElementById('register-error');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (errorEl) { errorEl.classList.add('hidden'); errorEl.textContent = ''; }
+    const data = new FormData(form);
+    const payload = {
+      username: data.get('username'),
+      password: data.get('password'),
+      invitationToken: data.get('invitationToken') || undefined,
+    };
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      window.location.href = '/overview';
+      return;
+    }
+    let message = 'Registration failed';
+    try { message = (await res.json()).error || message; } catch {}
+    if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden'); }
+  });
+</script>

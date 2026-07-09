@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@source "../components*.{astro,tsx,ts,jsx,js}";
+@source "../pages*.{astro,tsx,ts,jsx,js}";
+@source "../layouts*.{astro,tsx,ts,jsx,js}";
+
+@import "./tokens.css";
+@import "./components.css";
+@import "./base.css";
+@import "./lp.css";
+@import "./puck.css";
+@import "./grapesjs.css";

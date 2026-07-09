@@ -1,0 +1,70 @@
+---
+import { svg } from './sidebar-icons';
+import type { VisibleItem } from './sidebar-nav';
+
+interface Props {
+  item: VisibleItem;
+  activeNav?: string;
+  activeTop: string;
+}
+
+const { item, activeNav, activeTop } = Astro.props;
+
+const visibleChildren = (item.children || []).filter((c) => c.visible);
+const hasChildren = visibleChildren.length > 0;
+const isActive = !hasChildren && activeNav === item.id;
+const isParentActive = activeTop === item.id;
+---
+
+{!hasChildren ? (
+  <a
+    href={item.href!}
+    class={isActive
+      ? 'flex items-center gap-2 text-[13.5px] rounded-md px-2.5 py-[7px] bg-ds-card border border-ds-line shadow-[0_1px_2px_rgba(17,24,39,.04)] text-ds-ink no-underline'
+      : 'flex items-center gap-2 text-[13.5px] rounded-md px-2.5 py-[7px] border border-transparent text-[#374151] hover:bg-[#F3F4F6] hover:text-ds-ink no-underline'}
+    aria-current={isActive ? 'page' : undefined}
+  >
+    <span class="shrink-0 text-ds-muted" set:html={svg(item.id)} aria-hidden="true"></span>
+    <span class="flex-1 truncate">{item.label}</span>
+  </a>
+) : (
+  <div class="autonnel-sidebar-group" data-group-id={item.id}>
+    <button
+      type="button"
+      class={isParentActive
+        ? 'autonnel-sidebar-toggle w-full flex items-center gap-2 text-[13.5px] rounded-md px-2.5 py-[7px] bg-ds-card border border-ds-line shadow-[0_1px_2px_rgba(17,24,39,.04)] text-ds-ink'
+        : 'autonnel-sidebar-toggle w-full flex items-center gap-2 text-[13.5px] rounded-md px-2.5 py-[7px] border border-transparent text-[#374151] hover:bg-[#F3F4F6] hover:text-ds-ink'}
+      aria-expanded="false"
+      aria-controls={`autonnel-sidebar-children-${item.id}`}
+    >
+      <span class="shrink-0 text-ds-muted" set:html={svg(item.id)} aria-hidden="true"></span>
+      <span class="flex-1 truncate text-left">{item.label}</span>
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        class="autonnel-sidebar-caret w-3.5 h-3.5 text-ds-muted shrink-0 transition-transform"
+        aria-hidden="true"
+      >
+        <path d="M4 6l4 4l4-4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+    <div
+      id={`autonnel-sidebar-children-${item.id}`}
+      class="autonnel-sidebar-children hidden mt-0.5 ml-3.5 pl-2.5 border-l border-ds-line flex flex-col gap-0.5"
+    >
+      {visibleChildren.map((c) => {
+        const childActive = activeNav === c.id;
+        const cls = childActive
+          ? 'flex items-center gap-2 text-[12.5px] rounded-md px-2.5 py-[6px] bg-ds-card border border-ds-line shadow-[0_1px_2px_rgba(17,24,39,.04)] text-ds-ink no-underline'
+          : 'flex items-center gap-2 text-[12.5px] rounded-md px-2.5 py-[6px] border border-transparent text-[#4B5563] hover:bg-[#F3F4F6] hover:text-ds-ink no-underline';
+        return (
+          <a href={c.href} class={cls} aria-current={childActive ? 'page' : undefined}>
+            <span class="flex-1 truncate">{c.label}</span>
+          </a>
+        );
+      })}
+    </div>
+  </div>
+)}

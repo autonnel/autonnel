@@ -1,0 +1,298 @@
+
+.gjs-editor {
+  --gjs-primary-color: var(--background);
+  --gjs-secondary-color: var(--muted);
+  --gjs-tertiary-color: var(--primary);
+  --gjs-quaternary-color: var(--primary);
+  --gjs-font-color: var(--foreground);
+  --gjs-font-color-active: var(--foreground);
+  --gjs-main-color: var(--primary);
+  --gjs-main-light-color: color-mix(in srgb, var(--primary) 80%, white);
+  --gjs-main-dark-color: color-mix(in srgb, var(--primary) 85%, black);
+  background: var(--background);
+}
+
+.gjs-editor .gjs-pn-panel,
+.gjs-editor .gjs-pn-buttons,
+.gjs-editor .gjs-pn-views,
+.gjs-editor .gjs-pn-views-container {
+  background: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+.gjs-editor .gjs-pn-btn {
+  color: var(--muted-foreground);
+}
+.gjs-editor .gjs-pn-btn:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.gjs-editor .gjs-pn-btn.gjs-pn-active {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
+
+.gjs-editor .gjs-blocks-c {
+  background: var(--background);
+}
+.gjs-editor .gjs-block {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.gjs-editor .gjs-block:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+.gjs-editor .gjs-block-label {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.gjs-editor .gjs-clm-tags,
+.gjs-editor .gjs-clm-tags-c,
+.gjs-editor .gjs-clm-header,
+.gjs-editor .gjs-clm-sels,
+.gjs-editor .gjs-clm-sel-state,
+.gjs-editor .gjs-clm-states {
+  background: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.gjs-editor .gjs-clm-label,
+.gjs-editor .gjs-clm-tags-c .gjs-clm-label {
+  color: var(--foreground);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gjs-editor .gjs-clm-tag {
+  background: var(--muted);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+}
+.gjs-editor .gjs-clm-new,
+.gjs-editor .gjs-clm-add-tag,
+.gjs-editor .gjs-clm-tags-btn {
+  background: var(--background);
+  color: var(--muted-foreground);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.gjs-editor .gjs-clm-new:hover,
+.gjs-editor .gjs-clm-add-tag:hover,
+.gjs-editor .gjs-clm-tags-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  border-style: solid;
+}
+.gjs-editor .gjs-clm-label-status,
+.gjs-editor .gjs-clm-status {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.gjs-editor .gjs-trt-traits,
+.gjs-editor .gjs-trt-trait {
+  background: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.gjs-editor .gjs-trt-trait .gjs-label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gjs-editor .gjs-field,
+.gjs-editor .gjs-fields,
+.gjs-editor .gjs-input-holder,
+.gjs-editor .gjs-unit-input {
+  background: var(--background);
+  border-color: var(--border);
+}
+.gjs-editor .gjs-field input,
+.gjs-editor .gjs-field select,
+.gjs-editor .gjs-field textarea,
+.gjs-editor .gjs-input-holder input,
+.gjs-editor .gjs-unit-input input {
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  padding: 4px 8px;
+}
+.gjs-editor .gjs-field input:focus,
+.gjs-editor .gjs-field select:focus,
+.gjs-editor .gjs-field textarea:focus,
+.gjs-editor .gjs-input-holder input:focus,
+.gjs-editor .gjs-unit-input input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+.gjs-editor .gjs-input-unit {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.gjs-editor .gjs-sm-sectors,
+.gjs-editor .gjs-sm-sector,
+.gjs-editor .gjs-sm-property {
+  background: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.gjs-editor .gjs-sm-sector .gjs-sm-title,
+.gjs-editor .gjs-sm-sector-title {
+  background: var(--background);
+  color: var(--foreground);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+}
+.gjs-editor .gjs-sm-property .gjs-sm-label,
+.gjs-editor .gjs-sm-label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gjs-editor .gjs-radio-items {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.gjs-editor .gjs-radio-item {
+  background: var(--background);
+  color: var(--muted-foreground);
+  border-color: var(--border);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.gjs-editor .gjs-radio-item:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.gjs-editor .gjs-radio-item input:checked + .gjs-radio-item-label,
+.gjs-editor .gjs-radio-item.gjs-four-color,
+.gjs-editor .gjs-radio-item.gjs-active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.gjs-editor .gjs-layers,
+.gjs-editor .gjs-layer,
+.gjs-editor .gjs-layer-item,
+.gjs-editor .gjs-layer-no-chld,
+.gjs-editor .gjs-layer-children {
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+}
+.gjs-editor .gjs-layer {
+  border-bottom: 1px solid var(--border) !important;
+}
+.gjs-editor .gjs-layer:hover,
+.gjs-editor .gjs-layer.gjs-hovered {
+  background: var(--muted) !important;
+}
+.gjs-editor .gjs-layer.gjs-selected,
+.gjs-editor .gjs-layer.gjs-layer-selected {
+  background: color-mix(in srgb, var(--primary) 10%, var(--background)) !important;
+}
+.gjs-editor .gjs-layer-title,
+.gjs-editor .gjs-layer-name {
+  color: var(--foreground) !important;
+}
+.gjs-editor .gjs-layer-vis,
+.gjs-editor .gjs-layer-caret,
+.gjs-editor .gjs-layer-move {
+  color: var(--muted-foreground) !important;
+}
+.gjs-editor .gjs-layer-vis-off,
+.gjs-editor .gjs-layer-hidden .gjs-layer-vis {
+  opacity: 0.4;
+}
+
+
+.gjs-editor .gjs-block-categories,
+.gjs-editor .gjs-block-category,
+.gjs-editor .gjs-blocks-container {
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+}
+.gjs-editor .gjs-block-category .gjs-title,
+.gjs-editor .gjs-block-category > .gjs-title {
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+  border-bottom: 1px solid var(--border) !important;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 8px 12px;
+}
+
+.gjs-editor .gjs-trt-header,
+.gjs-editor .gjs-clm-header,
+.gjs-editor .gjs-sm-header,
+.gjs-editor .gjs-pn-views-container > .gjs-pn-panel:first-child {
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 8px 12px;
+}
+
+.gjs-editor .gjs-com-badge,
+.gjs-editor .gjs-com-toolbar {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.gjs-editor .gjs-devices-c select {
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.gjs-editor .gjs-agent-view {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  background: var(--background);
+  text-align: left;
+}
+.gjs-editor .gjs-agent-view.gjs-agent-active {
+  display: flex;
+}
+
+.autonnel-img-ai-button {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.autonnel-img-ai-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.55);
+}
+.autonnel-img-ai-panel {
+  animation: autonnelImgAiPanelIn 140ms ease;
+}
+@keyframes autonnelImgAiPanelIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes autonnelToolDotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}

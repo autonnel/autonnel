@@ -1,0 +1,64 @@
+---
+interface PaymentConfig {
+  paypal: {
+    clientId: string;
+    merchantId?: string;
+    mode: string;
+    currency: string;
+    enableCardFields: boolean;
+  } | null;
+  providers?: Record<string, Record<string, any>>;
+}
+
+interface Props {
+  pageType: string;
+  paymentConfig: PaymentConfig;
+  googleMapsApiKey?: string;
+}
+
+const { pageType, paymentConfig, googleMapsApiKey = '' } = Astro.props;
+
+const shouldRender = pageType === 'CHECKOUT' || pageType === 'UPSELL';
+const paypalIntent = 'capture';
+const stripeConfig = paymentConfig.providers?.card as { publishableKey?: string } | undefined;
+const hasStripe = !!stripeConfig?.publishableKey;
+---
+
+{shouldRender && (
+  <>
+    {paymentConfig.paypal?.clientId && (
+      <>
+        <script
+          is:inline
+          define:vars={{
+            paypalSdkBaseParams: `client-id=${paymentConfig.paypal.clientId}&intent=${paypalIntent}${paymentConfig.paypal.merchantId ? `&merchant-id=${paymentConfig.paypal.merchantId}` : ''}${paymentConfig.paypal.enableCardFields ? '&components=buttons,card-fields' : ''}`,
+            paypalConfigCurrency: paymentConfig.paypal.currency || 'USD',
+          }}
+        >
+          window.__PAYPAL_SDK_CONFIG__ = { baseParams: paypalSdkBaseParams, currency: paypalConfigCurrency };
+        </script>
+        <script>
+          import { initPayPalSdkLoader } from './paypal-sdk-loader';
+          initPayPalSdkLoader();
+        </script>
+      </>
+    )}
+
+    {hasStripe && (
+      <script
+        is:inline
+        src="https://js.stripe.com/v3/"
+        crossorigin="anonymous"
+        onload="window.__STRIPE_SDK_READY__ = true; window.dispatchEvent(new Event('stripe-sdk-ready'));"
+      ></script>
+    )}
+
+    {googleMapsApiKey && (
+      <script
+        is:inline
+        async
+        src={`https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`}
+      ></script>
+    )}
+  </>
+)}

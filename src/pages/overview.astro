@@ -1,0 +1,439 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { loadOverviewData } from '@/lib/dashboard/overview-data';
+import { loadSetupTasks, type SetupTask } from '@/lib/dashboard/setup-tasks';
+import { aggregateIntegrations, countAttention, formatHms, relativeTime } from '@/lib/dashboard/overview-helpers';
+import Stat from '@/components/primitives/ds/Stat';
+import SparkLine from '@/components/primitives/ds/SparkLine';
+import TimeRangeSelector from '@/components/primitives/ds/TimeRangeSelector';
+import Markdown from '@/components/primitives/ds/Markdown';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const rangeParam = Astro.url.searchParams.get('range');
+const range: '24h' | '7d' | '30d' = rangeParam === '7d' || rangeParam === '30d' ? rangeParam : '24h';
+
+const now = new Date();
+let data;
+try {
+  data = await loadOverviewData(now);
+} catch {
+  data = {
+    metrics: {
+      orders: { label: 'Total orders (24h)', value: '0', delta: { value: '0.0%', direction: 'up' as const, tone: 'muted' as const }, sparkline: [] },
+      conversion: { label: 'Conversion rate (24h)', value: '0.00%', delta: { value: '0.0%', direction: 'up' as const, tone: 'muted' as const }, sparkline: [] },
+      revenue: { label: 'Revenue (24h)', value: '$0.00', delta: { value: '0.0%', direction: 'up' as const, tone: 'muted' as const }, sparkline: [] },
+    },
+    funnels: { rows: [], totalCount: 0, runningCount: 0, lastSyncSec: 0 },
+    activity: [],
+    integrationsRaw: { adPlatforms: [], paymentConfigs: [], emailConfigs: [], sites: [] },
+    recallRecovered: { count: 0, revenue: '$0.00', sparkline: [] },
+    lastAnalysis: null,
+  };
+}
+
+let setupTasks: SetupTask[] = [];
+try {
+  setupTasks = await loadSetupTasks();
+} catch {
+}
+const requiredTasks = setupTasks.filter((t) => !t.optional);
+const requiredDone = requiredTasks.filter((t) => t.completed).length;
+const allSetupDone = setupTasks.length > 0 && setupTasks.every((t) => t.completed);
+
+const lastAnalysis = data.lastAnalysis;
+const lastAnalysisSubtitle = lastAnalysis
+  ? `${lastAnalysis.sessionsAnalyzed.toLocaleString()} sessions · ${lastAnalysis.timeRange} · ${relativeTime(lastAnalysis.runAt, now)}`
+  : '';
+
+const integrations = aggregateIntegrations(data.integrationsRaw, now);
+const attention = countAttention(integrations);
+
+function badgeClasses(tone: 'ok' | 'warn' | 'bad' | 'muted') {
+  if (tone === 'ok') return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+  if (tone === 'warn') return 'bg-ds-warnBg border-ds-warnBorder text-ds-warnText';
+  if (tone === 'bad') return 'bg-ds-badBg border-ds-badBorder text-ds-badText';
+  return 'bg-ds-surface2 border-ds-line text-ds-muted';
+}
+
+function dotStyle(status: 'ok' | 'warn' | 'bad' | 'muted') {
+  const map = {
+    ok:   { bg: '#16A34A', ring: 'rgba(22,163,74,0.12)' },
+    warn: { bg: '#D97706', ring: 'rgba(217,119,6,0.12)' },
+    bad:  { bg: '#DC2626', ring: 'rgba(220,38,38,0.12)' },
+    muted:{ bg: '#9CA3AF', ring: 'rgba(156,163,175,0.12)' },
+  } as const;
+  const { bg, ring } = map[status];
+  return `background-color: ${bg}; box-shadow: 0 0 0 3px ${ring};`;
+}
+
+function tokenColor(tone: 'ok' | 'bad' | 'muted' | 'highlight') {
+  if (tone === 'ok') return '#A7F3D0';
+  if (tone === 'bad') return '#FCA5A5';
+  if (tone === 'muted') return '#9CA3AF';
+  return '#E5E7EB';
+}
+---
+
+<DashboardLayout
+  title="Overview"
+  activeNav="overview"
+>
+  <div slot="header-actions">
+    <!-- TODO: when overview-data accepts a timeframe arg, plumb `range` through to loadOverviewData. -->
+    <TimeRangeSelector client:load current={range} />
+  </div>
+  <button
+    slot="header-actions"
+    type="button"
+    onclick="window.location.reload()"
+    class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB]"
+  >
+    Refresh
+  </button>
+  <a
+    slot="header-actions"
+    href="/funnels?new=1"
+    class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-3 text-[13px] gap-2 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937] no-underline"
+  >
+    New funnel
+  </a>
+
+  <div class="grid grid-cols-12 gap-5">
+    {setupTasks.length > 0 && (
+      <details
+        class="group col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]"
+        open={!allSetupDone}
+      >
+        <summary class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold text-ds-ink">Setup tasks</div>
+            <div class="text-[12.5px] text-ds-muted mt-0.5">
+              {allSetupDone
+                ? 'All setup tasks complete'
+                : `${requiredDone} of ${requiredTasks.length} required steps complete`}
+            </div>
+          </div>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="w-4 h-4 text-ds-muted shrink-0 mt-1 transition-transform group-open:rotate-180"
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </summary>
+        <div class="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {setupTasks.map((t) => (
+            <a
+              href={t.href}
+              class={`border border-ds-line rounded-lg px-3 py-2.5 flex items-start gap-3 bg-ds-card no-underline hover:bg-ds-surface2 transition-colors ${t.completed ? 'opacity-50' : ''}`}
+            >
+              {t.completed ? (
+                <span class="w-[18px] h-[18px] rounded-full bg-[#16A34A] flex items-center justify-center shrink-0 mt-0.5" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+              ) : (
+                <span class="w-[18px] h-[18px] rounded-full border-2 border-ds-line shrink-0 mt-0.5" aria-hidden="true"></span>
+              )}
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[12.5px] font-medium text-ds-ink truncate">{t.label}</span>
+                  {t.optional && (
+                    <span class="inline-flex items-center rounded-[6px] border border-ds-line bg-ds-surface2 px-1.5 py-[1px] text-[10.5px] font-medium leading-tight text-ds-muted shrink-0">
+                      Optional
+                    </span>
+                  )}
+                </div>
+                <div class="text-[11.5px] text-ds-muted mt-0.5">{t.description}</div>
+              </div>
+            </a>
+          ))}
+        </div>
+      </details>
+    )}
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Stat
+          client:load
+          label={data.metrics.orders.label}
+          value={data.metrics.orders.value}
+          delta={{ ...data.metrics.orders.delta, context: 'vs prev 24h' }}
+          sparkline={data.metrics.orders.sparkline}
+          sparklineColor="#2563EB"
+        />
+        <Stat
+          client:load
+          label={data.metrics.conversion.label}
+          value={data.metrics.conversion.value}
+          delta={{ ...data.metrics.conversion.delta, context: 'vs prev 24h' }}
+          sparkline={data.metrics.conversion.sparkline}
+          sparklineColor="#16A34A"
+        />
+        <Stat
+          client:load
+          label={data.metrics.revenue.label}
+          value={data.metrics.revenue.value}
+          delta={{ ...data.metrics.revenue.delta, context: 'vs prev 24h' }}
+          sparkline={data.metrics.revenue.sparkline}
+          sparklineColor="#6366F1"
+        />
+      </div>
+    </div>
+
+    <div class="col-span-12 xl:col-span-8 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">Active funnels</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            {data.funnels.runningCount} running · last activity {relativeTime(new Date(now.getTime() - data.funnels.lastSyncSec * 1000), now)}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a href="/api/funnel/export?format=csv" class="inline-flex items-center justify-center font-medium rounded-[7px] h-7 px-2.5 text-[12px] gap-1.5 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">
+            Export CSV
+          </a>
+        </div>
+      </div>
+      {data.funnels.rows.length === 0 ? (
+        <div class="px-6 py-10 text-center text-[13px] text-ds-muted">
+          No funnels yet. <a href="/funnels?new=1" class="text-ds-accent">Create your first funnel</a>.
+        </div>
+      ) : (
+        <div>
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Funnel</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Runtime</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Traffic 24h</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Conv</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.funnels.rows.map((f) => (
+                <tr class="hover:bg-ds-surface2 transition-colors">
+                  <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">
+                    <div class="flex items-center gap-2">
+                      <span class="inline-block w-[7px] h-[7px] rounded-full shrink-0" style={dotStyle(f.needsRetry ? 'warn' : 'ok')} aria-hidden="true"></span>
+                      <div class="min-w-0">
+                        <div class="text-[13.5px] text-ds-ink truncate">{f.name}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">
+                    <span class="inline-flex items-center gap-1 rounded-[6px] border px-1.5 py-[1px] text-[11.5px] font-medium leading-tight bg-[#ECFDF5] border-[#A7F3D0] text-[#047857]">
+                      {f.runtime}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">
+                    {f.visits24h.toLocaleString()} v · {f.orders24h.toLocaleString()} o
+                  </td>
+                  <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{f.conv}</td>
+                  <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right">
+                    <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${badgeClasses(f.needsRetry ? 'warn' : 'ok')}`}>
+                      <span class="inline-block w-[7px] h-[7px] rounded-full shrink-0" style={dotStyle(f.needsRetry ? 'warn' : 'ok')} aria-hidden="true"></span>
+                      {f.needsRetry ? 'Retry postback' : 'Stable'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div class="px-6 py-3 text-[12px] text-ds-muted flex items-center justify-between border-t border-ds-line bg-ds-surface2">
+            <span>
+              Showing <span class="font-ds-mono tabular">{data.funnels.rows.length}</span> of <span class="font-ds-mono tabular">{data.funnels.totalCount}</span> funnels
+            </span>
+            <a href="/funnels" class="text-ds-accent no-underline hover:underline">View all →</a>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <div class="col-span-12 xl:col-span-4">
+      <div class="rounded-[10px] border border-[#111827] bg-[#1F2937] text-[#D1D5DB] overflow-hidden">
+        <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-[#374151]">
+          <div class="min-w-0">
+            <a href="/settings/logs" class="no-underline text-[#E5E7EB] hover:text-white">
+              <div class="text-[13px] font-semibold flex items-center gap-2">
+                <span class="inline-block w-[7px] h-[7px] rounded-full bg-[#22C55E] animate-softblink"></span>
+                System activity
+              </div>
+            </a>
+            <div class="text-[11.5px] text-[#9CA3AF] mt-0.5">
+              Live · <span data-feed-count>{data.activity.length}</span> entries
+            </div>
+          </div>
+          <a href="/settings/logs" class="text-[11px] font-ds-mono tabular text-[#9CA3AF] hover:text-white no-underline shrink-0">View all →</a>
+        </div>
+        <div
+          class="overflow-auto px-4 py-3 font-ds-mono text-[12px] leading-relaxed"
+          style="max-height: 360px;"
+          data-activity-feed
+          data-feed-endpoint="/api/activity/system/stream"
+          data-feed-since={data.activity[0] ? String(data.activity[0].ts.getTime()) : ''}
+          data-feed-max="50"
+        >
+          <div data-feed-list>
+            {data.activity.length === 0 ? (
+              <div class="flex gap-3 items-baseline" data-feed-empty>
+                <span class="text-[#9CA3AF] tabular shrink-0">{formatHms(now)}</span>
+                <span class="min-w-0 break-words" style="color: #9CA3AF;">no activity yet</span>
+              </div>
+            ) : (
+              [...data.activity].reverse().map((a) => (
+                <div class="flex gap-3 items-baseline" data-feed-row>
+                  <span class="text-[#9CA3AF] tabular shrink-0">{formatHms(a.ts)}</span>
+                  <span class="min-w-0 break-words">
+                    {a.text} · <span style={`color: ${tokenColor(a.tone)};`}>{a.payload}</span>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <span class="inline-block w-[7px] h-[12px] bg-[#9CA3AF] align-middle ml-1 animate-softblink" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">Recall recovered (7d)</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">Abandoned carts recovered via recall emails</div>
+        </div>
+        <a
+          href="/orders?recall=1"
+          class="inline-flex items-center justify-center font-medium rounded-[7px] h-7 px-2.5 text-[12px] gap-1.5 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+        >
+          View →
+        </a>
+      </div>
+      <div class="px-6 pb-5">
+        {data.recallRecovered.count === 0 ? (
+          <div class="text-[13px] text-ds-muted text-center py-6">
+            No recall conversions in the last 7 days
+          </div>
+        ) : (
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+            <div>
+              <div class="text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted">Orders</div>
+              <div class="text-[22px] font-semibold text-ds-ink font-ds-mono tabular mt-1">
+                {data.recallRecovered.count.toLocaleString()} <span class="text-[13px] font-normal text-ds-muted">orders</span>
+              </div>
+            </div>
+            <div>
+              <div class="text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted">Revenue</div>
+              <div class="text-[22px] font-semibold text-ds-ink font-ds-mono tabular mt-1">{data.recallRecovered.revenue}</div>
+            </div>
+            <div class="md:justify-self-end w-full md:w-[220px]">
+              <SparkLine client:load points={data.recallRecovered.sparkline} color="#6366F1" />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">Latest conversion analysis</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            {lastAnalysis ? (
+              <>
+                {lastAnalysisSubtitle}
+                {!lastAnalysis.hasLlmInsights && (
+                  <span class="text-ds-muted"> · LLM not configured</span>
+                )}
+              </>
+            ) : (
+              <span>No runs yet</span>
+            )}
+          </div>
+        </div>
+        <a
+          href="/settings/notifications"
+          class="inline-flex items-center justify-center font-medium rounded-[7px] h-7 px-2.5 text-[12px] gap-1.5 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+        >
+          View settings →
+        </a>
+      </div>
+      <div class="px-6 pb-5">
+        {lastAnalysis === null ? (
+          <div class="text-[13px] text-ds-muted text-center py-6">
+            No analysis has run yet. Configure in <a href="/settings/notifications" class="text-ds-accent">Settings → Notifications</a>.
+          </div>
+        ) : (
+          <div class="space-y-4">
+            <pre class="whitespace-pre-wrap font-ds-mono text-[12.5px] leading-relaxed text-ds-ink bg-ds-surface2 border border-ds-line rounded-lg px-4 py-3 max-h-64 overflow-y-auto">{lastAnalysis.summary}</pre>
+            {lastAnalysis.hasLlmInsights && (
+              <div>
+                <div class="text-[12.5px] font-semibold text-ds-ink mb-1.5">Insights</div>
+                <Markdown
+                  client:load
+                  content={lastAnalysis.analysis}
+                  className="text-[12.5px] leading-relaxed text-ds-ink bg-ds-surface2 border border-ds-line rounded-lg px-4 py-3 max-h-64 overflow-y-auto"
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-[14px] font-semibold text-ds-ink">Integrations & pixels</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            {integrations.length} connections · {attention} require attention
+          </div>
+        </div>
+        <a href="/settings" class="inline-flex items-center justify-center font-medium rounded-[7px] h-7 px-2.5 text-[12px] gap-1.5 bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline">
+          Manage
+        </a>
+      </div>
+      <div class="px-6 pb-5">
+        {integrations.length === 0 ? (
+          <div class="text-[13px] text-ds-muted text-center py-6">
+            No integrations yet · <a href="/settings" class="text-ds-accent">Add one in Settings</a>
+          </div>
+        ) : (
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {integrations.map((i) => (
+              <div class="border border-ds-line rounded-lg px-3 py-2.5 flex items-start gap-3 bg-ds-card">
+                <div class="w-7 h-7 rounded-md bg-ds-surface2 border border-ds-line flex items-center justify-center text-[12px] font-semibold text-ds-slate shrink-0">
+                  {i.name.slice(0, 1).toUpperCase()}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[12.5px] font-medium text-ds-ink truncate">{i.name}</div>
+                  <div class="text-[11.5px] text-ds-muted font-ds-mono tabular truncate">{i.detail}</div>
+                </div>
+                <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${badgeClasses(i.status)}`}>
+                  <span class="inline-block w-[7px] h-[7px] rounded-full shrink-0" style={dotStyle(i.status)} aria-hidden="true"></span>
+                  {i.statusLabel}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    import '../scripts/activity-feed-live.ts';
+  </script>
+</DashboardLayout>

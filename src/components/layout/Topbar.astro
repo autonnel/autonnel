@@ -1,0 +1,89 @@
+---
+import { CRON_JOBS } from '@/lib/cron/catalog';
+import { checkAuth } from '@/lib/auth/middleware';
+import UserMenu from '@/components/layout/UserMenu';
+
+interface Crumb {
+  label: string;
+  href?: string;
+}
+
+interface Props {
+  breadcrumbs?: Crumb[];
+}
+
+const { breadcrumbs = [] } = Astro.props;
+
+const auth = await checkAuth(Astro);
+const user = auth.user;
+
+const jobCount = CRON_JOBS.length;
+---
+
+<header
+  class="sticky top-0 z-20 h-[52px] bg-ds-card border-b border-ds-line flex items-center px-6 gap-4 font-ds-sans"
+>
+  <nav class="flex items-center gap-1.5 text-[12.5px] min-w-0 flex-1" aria-label="Breadcrumb">
+    {breadcrumbs.length === 0 ? (
+      <span class="text-ds-muted">Autonnel</span>
+    ) : (
+      breadcrumbs.map((crumb, i) => (
+        <Fragment>
+          {i > 0 && <span class="text-ds-faint" aria-hidden="true">/</span>}
+          {crumb.href ? (
+            <a
+              href={crumb.href}
+              class={`no-underline ${i === breadcrumbs.length - 1 ? 'text-ds-ink font-medium' : 'text-ds-muted hover:text-ds-ink'}`}
+            >
+              {crumb.label}
+            </a>
+          ) : (
+            <span class={i === breadcrumbs.length - 1 ? 'text-ds-ink font-medium' : 'text-ds-muted'}>
+              {crumb.label}
+            </span>
+          )}
+        </Fragment>
+      ))
+    )}
+  </nav>
+
+  <div class="flex-1 max-w-[380px] hidden md:block">
+    <button
+      type="button"
+      id="autonnel-topbar-search"
+      class="w-full h-8 bg-ds-surface2 border border-ds-line rounded-lg px-2.5 flex items-center gap-2 text-[12.5px] text-ds-muted hover:border-ds-linehi focus:outline-none focus-visible:ring-2 focus-visible:ring-ds-accent focus-visible:ring-offset-1 transition-colors"
+      aria-label="Open command palette"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-3.5 h-3.5 shrink-0" aria-hidden="true">
+        <circle cx="11" cy="11" r="8" />
+        <path d="M21 21l-4.3-4.3" />
+      </svg>
+      <span class="flex-1 text-left truncate">Search funnels, sites, orders...</span>
+      <kbd
+        class="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-[5px] bg-ds-card border border-ds-line text-ds-slate font-ds-mono text-[10.5px] leading-none"
+      >
+        ⌘K
+      </kbd>
+    </button>
+  </div>
+
+  <div class="flex items-center gap-3 shrink-0">
+    <div class="hidden sm:flex items-center gap-1.5 text-[12px] text-ds-slate">
+      <span
+        class="inline-block w-[7px] h-[7px] rounded-full shrink-0 animate-softblink"
+        style="background-color: #16A34A; box-shadow: 0 0 0 3px rgba(22,163,74,0.12);"
+        aria-hidden="true"
+      ></span>
+      <span class="font-ds-mono">{jobCount}</span>
+      <span>jobs &middot; idle</span>
+    </div>
+
+    <UserMenu client:load user={user ? { email: user.email, username: user.username, name: user.name, avatar: user.avatar } : null} />
+  </div>
+</header>
+
+<script>
+  document.getElementById('autonnel-topbar-search')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('autonnel:palette-open'));
+  });
+</script>

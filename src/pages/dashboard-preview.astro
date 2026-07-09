@@ -1,0 +1,60 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+---
+
+<DashboardLayout
+  title="Dashboard layout preview"
+  activeNav="overview"
+>
+  <a
+    slot="header-actions"
+    href="/design"
+    class="inline-flex items-center justify-center font-medium rounded-[7px] h-7 px-2.5 text-[12px] gap-1.5 bg-transparent border border-transparent text-ds-ink hover:bg-[#F3F4F6] no-underline"
+  >
+    Design system
+  </a>
+  <button
+    slot="header-actions"
+    type="button"
+    class="inline-flex items-center justify-center font-medium rounded-[7px] h-7 px-2.5 text-[12px] gap-1.5 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937]"
+  >
+    Refresh
+  </button>
+
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 xl:col-span-8 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4">
+        <div class="text-[14px] font-semibold text-ds-ink">Layout skeleton verified</div>
+        <div class="text-[12.5px] text-ds-muted mt-0.5">
+          Sidebar (240px) &middot; Topbar (52px) &middot; PageHeader &middot; Footer (40px)
+        </div>
+      </div>
+      <div class="px-6 pb-5 text-[13px] text-ds-slate space-y-2">
+        <p>
+          This page is a Phase 10.2 proof-of-concept. The actual dashboard pages are migrated to
+          <span class="font-ds-mono">DashboardLayout</span> incrementally in Phases 10.3 - 10.9.
+        </p>
+        <p>Real content (KPIs, agent log, integrations) lands in Phase 10.3.</p>
+      </div>
+    </div>
+
+    <div class="col-span-12 xl:col-span-4 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4">
+        <div class="text-[14px] font-semibold text-ds-ink">Slots</div>
+      </div>
+      <div class="px-6 pb-5 text-[12.5px] text-ds-slate space-y-1.5 font-ds-mono">
+        <div>props.title</div>
+        <div>props.breadcrumbs</div>
+        <div>props.activeNav</div>
+        <div>slot="header-actions"</div>
+        <div>slot (default)</div>
+      </div>
+    </div>
+  </div>
+</DashboardLayout>

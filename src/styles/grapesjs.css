@@ -1,0 +1,69 @@
+.grapesjs-editor-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+
+.grapesjs-editor-wrapper .gjs-editor {
+  height: 100% !important;
+}
+
+
+.grapesjs-editor-wrapper .gjs-cv-canvas {
+  background-color: #64748b;
+  background-image:
+    linear-gradient(45deg, #475569 25%, transparent 25%),
+    linear-gradient(-45deg, #475569 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #475569 75%),
+    linear-gradient(-45deg, transparent 75%, #475569 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+
+
+.grapesjs-editor-wrapper .gjs-frame-wrapper {
+  background-color: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+
+.grapesjs-editor-wrapper .gjs-selected {
+  outline: 2px solid #3b82f6 !important;
+}
+
+
+.grapesjs-editor-wrapper .gjs-badge {
+  background-color: #3b82f6;
+}
+
+
+.grapesjs-editor-wrapper .gjs-placeholder {
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+
+.grapesjs-editor-wrapper .gjs-resizer-h {
+  border-color: #3b82f6;
+}
+
+
+.grapesjs-editor-wrapper ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.grapesjs-editor-wrapper ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.grapesjs-editor-wrapper ::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+
+.grapesjs-editor-wrapper ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}

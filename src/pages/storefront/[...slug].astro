@@ -1,0 +1,373 @@
+---
+import { PreviewRenderer } from '@/components/builder/PreviewRenderer';
+import { IslandHydrator } from '@/components/builder/IslandHydrator';
+import StorefrontHead from '@/components/storefront/StorefrontHead.astro';
+import PaymentSDKLoader from '@/components/storefront/PaymentSDKLoader.astro';
+import { renderPuckToHtml, renderPuckToHtmlWithIslands } from '@/lib/puck-ssr';
+import {
+  getStorefrontPageData,
+  getTenantInfo,
+  getOrderDataForThankYou,
+} from '@/lib/storefront/storefront-data.service';
+import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { appendQueryParamsToPuckCtaLinks } from '@/lib/puck/resolve-funnel-cta-links';
+import { resolveEntryExperiment } from '@/lib/storefront/experiment-routing';
+import { createLogger } from '@/lib/logger';
+import HtmlEditorPageLayout from '@/layouts/HtmlEditorPageLayout.astro';
+import Tracking from '@/components/storefront/Tracking.astro';
+import { makeAcquisitionAds } from '@/composition/make-acquisition-ads';
+import { createAdsDepsForRequest } from '@/composition/make-ads-deps';
+
+const logger = createLogger('StorefrontSSR');
+
+const AD_CLICK_PARAMS = ['fbclid', 'gclid', 'gbraid', 'wbraid', 'ttclid', 'msclkid'];
+
+const { slug } = Astro.params;
+const pageSlug = slug || '';
+
+const url = new URL(Astro.request.url);
+const funnelIdFromQuery = url.searchParams.get('funnelId');
+
+const pageData = await getStorefrontPageData(pageSlug, funnelIdFromQuery);
+
+if (!pageData) {
+  const tenant = await getTenantInfo();
+  if (!tenant) {
+    return Astro.rewrite(`/_errors/storefront-not-found?slug=${encodeURIComponent(pageSlug)}`);
+  }
+  const publishedCount = await getTenantPrisma().page.count({
+    where: { status: 'PUBLISHED' },
+  });
+  if (publishedCount === 0) {
+    return Astro.rewrite('/_errors/coming-soon');
+  }
+  return Astro.rewrite(`/_errors/storefront-not-found?slug=${encodeURIComponent(pageSlug)}`);
+}
+
+function generateServerTrackingId(): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).substring(2, 15);
+  return `${ts}${rand}`;
+}
+
+// Reads anid first then legacy goid so old cookies keep attributing.
+function getTrackingIdFromCookie(request: Request): string {
+  const cookieHeader = request.headers.get('cookie') || '';
+  const anidMatch = cookieHeader.match(/(?:^|;\s*)anid=([^;]+)/);
+  if (anidMatch) return anidMatch[1].trim();
+  const goidMatch = cookieHeader.match(/(?:^|;\s*)goid=([^;]+)/);
+  return goidMatch ? goidMatch[1].trim() : '';
+}
+
+const anidFromUrl = url.searchParams.get('anid') || url.searchParams.get('goid') || '';
+const anidFromCookie = anidFromUrl ? '' : getTrackingIdFromCookie(Astro.request);
+const serverGeneratedAnid = (anidFromUrl || anidFromCookie) ? '' : generateServerTrackingId();
+const effectiveTrackingId = anidFromUrl || anidFromCookie || serverGeneratedAnid;
+
+// Server-authoritative visitor cookie; URL ?anid= is a manual override.
+if (effectiveTrackingId) {
+  Astro.cookies.set('anid', effectiveTrackingId, {
+    path: '/',
+    httpOnly: false,
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24 * 365,
+  });
+}
+
+// First-touch ad attribution: store click identifiers + cookies keyed by the visitor anid so a
+// later checkout can bridge them onto the sale and the server-side CAPI postback carries them.
+const fbpCookie = Astro.cookies.get('_fbp')?.value;
+const gaCookie = Astro.cookies.get('_ga')?.value;
+const hasClickSignal =
+  AD_CLICK_PARAMS.some((p) => url.searchParams.has(p)) || !!fbpCookie || !!gaCookie;
+if (effectiveTrackingId && hasClickSignal) {
+  try {
+    const ads = await makeAcquisitionAds(await createAdsDepsForRequest(Astro.locals));
+    const existing = await ads.attributionStore.get(`attr:${effectiveTrackingId}`);
+    if (!existing) {
+      await ads.captureAttribution.capture({
+        sessionId: effectiveTrackingId,
+        visitorId: effectiveTrackingId,
+        query: Object.fromEntries(url.searchParams),
+        fbp: fbpCookie || undefined,
+        ga: gaCookie || undefined,
+        landingUrl: url.href,
+        landingTimestampMs: Date.now(),
+      });
+    }
+  } catch (err) {
+    logger.warn('Attribution capture failed', { error: err });
+  }
+}
+
+// Experiment entry-split: only on the funnel entry page (stepIndex 0). `_ab` is the loop guard
+// so the redirected request renders normally instead of redirecting again.
+if (pageData.funnelId && pageData.stepIndex === 0 && !url.searchParams.has('_ab')) {
+  const assignment = await resolveEntryExperiment({
+    funnelId: pageData.funnelId,
+    currentPageId: pageData.page.id,
+    currentPageSlug: pageSlug,
+    trackingId: effectiveTrackingId,
+  });
+
+  if (assignment) {
+    // Short-lived attribution cookie for BOTH arms; the beacon stamps it onto the session.
+    Astro.cookies.set('_abassign', `${assignment.experimentId}:${assignment.armId}`, {
+      path: '/',
+      httpOnly: false,
+      sameSite: 'lax',
+      maxAge: 2 * 60 * 60,
+    });
+
+    if (assignment.redirectSlug) {
+      const normalizedSlug = assignment.redirectSlug.startsWith('/')
+        ? assignment.redirectSlug
+        : `/${assignment.redirectSlug}`;
+      let targetUrl = normalizedSlug;
+
+      const targetParams = new URLSearchParams(url.searchParams);
+      targetParams.set('_ab', '1');
+      const separator = targetUrl.includes('?') ? '&' : '?';
+      targetUrl = `${targetUrl}${separator}${targetParams.toString()}`;
+
+      Astro.cookies.set('anid', effectiveTrackingId, {
+        path: '/',
+        httpOnly: false,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 365,
+      });
+
+      logger.info('Experiment entry redirect', {
+        funnelId: pageData.funnelId,
+        experimentId: assignment.experimentId,
+        armId: assignment.armId,
+        targetUrl,
+      });
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: targetUrl,
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Referrer-Policy': 'no-referrer-when-downgrade',
+        },
+      });
+    }
+  }
+}
+
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+const isHtmlEditor = pageData.page.editorType === 'HTML';
+
+const htmlUrlParams: Record<string, string> = {};
+if (isHtmlEditor) {
+  if (pageData.funnelId) htmlUrlParams.funnelId = pageData.funnelId;
+  for (const [key, value] of url.searchParams.entries()) {
+    if (key !== 'anid' && key !== 'goid' && key !== 'funnelId') {
+      htmlUrlParams[key] = value;
+    }
+  }
+}
+
+const {
+  tenant,
+  page,
+  resolvedPuckData,
+  htmlContent,
+  pageHeadContent,
+  pageBodyScripts,
+  meta,
+  pageTitle,
+  pageDescription,
+  funnelCtaUrl,
+  funnelId,
+  funnelPageType,
+  stepIndex,
+  paymentConfig,
+  headScripts,
+  bodyStartScripts,
+  bodyEndScripts,
+  funnelHeadScripts,
+  funnelBodyStartScripts,
+  funnelBodyEndScripts,
+  googleMapsApiKey,
+} = pageData;
+
+const faviconData = tenant.favicon || null;
+
+const orderId = page.type === 'THANKYOU' ? url.searchParams.get('orderId') : null;
+const ssrOrderData = orderId ? await getOrderDataForThankYou(orderId) : null;
+
+const needsClientJs = page.type === 'CHECKOUT' || page.type === 'UPSELL';
+
+const ctaQueryParams: Record<string, string> = {};
+if (funnelId) ctaQueryParams.funnelId = funnelId;
+for (const [key, value] of url.searchParams.entries()) {
+  if (key !== 'anid' && key !== 'goid' && key !== 'funnelId') {
+    ctaQueryParams[key] = value;
+  }
+}
+const ssrPuckData = funnelCtaUrl
+  ? appendQueryParamsToPuckCtaLinks(resolvedPuckData, ctaQueryParams)
+  : resolvedPuckData;
+
+let staticPuckHtml = '';
+if (!isHtmlEditor && ssrPuckData) {
+  try {
+    staticPuckHtml = needsClientJs
+      ? renderPuckToHtmlWithIslands(ssrPuckData, ssrOrderData || undefined)
+      : renderPuckToHtml(ssrPuckData, ssrOrderData || undefined);
+  } catch (err) {
+    logger.error('SSR puck render failed, falling back to client render', { error: err });
+  }
+}
+
+const tenantName = tenant.name ?? '';
+
+const headScriptsHtml = isHtmlEditor
+  ? [...headScripts, ...funnelHeadScripts].map((s) => s.content).join('\n')
+  : '';
+const bodyStartScriptsHtml = isHtmlEditor
+  ? [...bodyStartScripts, ...funnelBodyStartScripts].map((s) => s.content).join('\n')
+  : '';
+const bodyEndScriptsHtml = isHtmlEditor
+  ? [...bodyEndScripts, ...funnelBodyEndScripts].map((s) => s.content).join('\n')
+  : '';
+---
+
+{isHtmlEditor ? (
+  <HtmlEditorPageLayout
+    tenantId={tenant.id}
+    tenantName={tenantName}
+    pageId={page.id}
+    pageType={page.type}
+    pageTitle={pageTitle}
+    pageDescription={pageDescription}
+    ogImage={meta?.ogImage}
+    favicon={faviconData}
+    rawHtmlContent={page.htmlContent || ''}
+    pageCssContent={pageData.pageCssContent}
+    pageHeadContent={pageHeadContent}
+    pageBodyScripts={pageBodyScripts}
+    headScriptsHtml={headScriptsHtml}
+    bodyStartScriptsHtml={bodyStartScriptsHtml}
+    bodyEndScriptsHtml={bodyEndScriptsHtml}
+    funnelId={funnelId}
+    funnelPageType={funnelPageType}
+    stepIndex={stepIndex}
+    funnelCtaUrl={funnelCtaUrl}
+    ssrUrlParams={htmlUrlParams}
+    serverGeneratedAnid={serverGeneratedAnid}
+  />
+) : (
+  <html lang="en">
+  <head>
+    <StorefrontHead
+      pageTitle={pageTitle}
+      pageDescription={pageDescription}
+      meta={meta}
+      pageHeadContent={pageHeadContent}
+      headScripts={[...headScripts, ...funnelHeadScripts]}
+      favicon={faviconData}
+    />
+  </head>
+  <body>
+    {bodyStartScripts.map(script => <Fragment set:html={script.content} />)}
+    {funnelBodyStartScripts.map(script => <Fragment set:html={script.content} />)}
+
+    <script define:vars={{
+      tenantId: tenant.id,
+      pageId: page.id,
+      funnelIdValue: funnelId,
+      funnelPageTypeValue: funnelPageType,
+      stepIndexValue: stepIndex,
+      tenantNameValue: tenantName,
+      serverAnid: serverGeneratedAnid,
+    }}>
+      window.__AUTONNEL_TENANT_ID__ = tenantId;
+      window.__AUTONNEL_API_BASE__ = '';
+      window.__AUTONNEL_PAGE_ID__ = pageId;
+      window.__AUTONNEL_FUNNEL_ID__ = funnelIdValue || null;
+      window.__AUTONNEL_FUNNEL_PAGE_TYPE__ = funnelPageTypeValue || null;
+      window.__AUTONNEL_STEP_INDEX__ = stepIndexValue || 0;
+      window.__AUTONNEL_TENANT_NAME__ = tenantNameValue;
+      if (serverAnid) {
+        window.__AUTONNEL_SERVER_ANID__ = serverAnid;
+      }
+    </script>
+    <Tracking />
+
+    <script define:vars={{
+      pageId: page.id,
+      pageType: page.type,
+      pageSlugValue: pageSlug,
+      tenantIdValue: tenant.id,
+      paymentConfigData: paymentConfig,
+      googleMapsApiKeyValue: googleMapsApiKey,
+      funnelCtaUrlValue: funnelCtaUrl
+        ? `${funnelCtaUrl}${Object.keys(ctaQueryParams).length > 0 ? '?' + new URLSearchParams(ctaQueryParams).toString() : ''}`
+        : null,
+      funnelIdValue: funnelId,
+      funnelPageTypeValue: funnelPageType,
+      stepIndexValue: stepIndex,
+    }}>
+      window.__AUTONNEL_PRODUCTS__ = [];
+      window.__AUTONNEL_PAGE_TYPE__ = pageType;
+      window.__AUTONNEL_PAGE_SLUG__ = pageSlugValue;
+      window.__CHECKOUT_STATE__ = { customerInfo: null, shippingAddress: null, currentOrderId: null };
+      window.__FUNNEL_CTA_URL__ = funnelCtaUrlValue;
+      window.__FUNNEL_NEXT_STEP_URL__ = funnelCtaUrlValue;
+
+      console.log('[Autonnel] Funnel context:', {
+        funnelId: funnelIdValue || null,
+        pageType: funnelPageTypeValue || null,
+        stepIndex: stepIndexValue || 0,
+        ctaUrl: funnelCtaUrlValue || null
+      });
+
+      window.__PAYMENT_CONFIG__ = paymentConfigData;
+      window.__PAYPAL_CLIENT_ID__ = paymentConfigData?.paypal?.clientId || '';
+      window.__GOOGLE_MAPS_API_KEY__ = googleMapsApiKeyValue;
+    </script>
+
+    <PaymentSDKLoader
+      pageType={page.type}
+      paymentConfig={paymentConfig}
+      googleMapsApiKey={googleMapsApiKey}
+    />
+
+    {needsClientJs && (
+      <script>
+        import '../../scripts/checkout-orchestrator.ts';
+      </script>
+    )}
+
+    {staticPuckHtml && (
+      <Fragment set:html={staticPuckHtml} />
+    )}
+    {staticPuckHtml && needsClientJs && (
+      <IslandHydrator client:only="react" />
+    )}
+    {!staticPuckHtml && resolvedPuckData && (
+      <PreviewRenderer client:only="react" data={resolvedPuckData} />
+    )}
+    {!staticPuckHtml && !resolvedPuckData && (
+      <div style="padding: 40px; text-align: center;">
+        <p>Page content is being prepared...</p>
+      </div>
+    )}
+
+    {page.type === 'THANKYOU' && ssrOrderData && (
+      <script is:inline define:vars={{ orderData: ssrOrderData }}>
+        window.__AUTONNEL_ORDER__ = orderData;
+      </script>
+    )}
+
+    {pageBodyScripts && <Fragment set:html={pageBodyScripts} />}
+
+    {funnelBodyEndScripts.map(script => <Fragment set:html={script.content} />)}
+    {bodyEndScripts.map(script => <Fragment set:html={script.content} />)}
+  </body>
+  </html>
+)}

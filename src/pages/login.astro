@@ -1,0 +1,111 @@
+---
+import AuthLayout from '@/layouts/AuthLayout.astro';
+import { getLoginExtras } from '@/lib/plugins/registry';
+import { checkAuth } from '@/lib/auth/middleware';
+import { cn } from '@/lib/utils';
+import { dsFieldClass } from '@/components/primitives/field-styles';
+
+const auth = await checkAuth(Astro);
+if (auth.authenticated) {
+  return Astro.redirect('/overview', 302);
+}
+
+const extras = await getLoginExtras();
+---
+
+<AuthLayout title="Sign in">
+  <main class="min-h-screen flex items-center justify-center bg-ds-bg p-6">
+    <div class="w-full max-w-sm">
+      <div class="bg-ds-card border border-ds-line rounded-[12px] p-6 shadow-sm">
+        <h1 class="text-[18px] font-semibold text-ds-ink mb-1">Sign in</h1>
+        <p class="text-[12px] text-ds-muted mb-5">Enter your email and password to continue.</p>
+
+        <form id="login-form" class="flex flex-col gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-[12px] text-ds-muted">Email</span>
+            <input
+              required
+              type="email"
+              autocomplete="username"
+              name="username"
+              class={cn(dsFieldClass)}
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-[12px] text-ds-muted">Password</span>
+            <input
+              required
+              autocomplete="current-password"
+              name="password"
+              type="password"
+              class={cn(dsFieldClass)}
+            />
+          </label>
+          <p id="login-error" class="text-[12px] text-red-600 hidden"></p>
+          <button
+            id="login-submit"
+            type="submit"
+            class="h-9 px-3 text-[13px] font-medium rounded-[7px] bg-ds-ink text-ds-card hover:bg-[#1F2937] transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <svg id="login-spinner" class="animate-spin h-3.5 w-3.5 hidden" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span id="login-label">Sign in</span>
+          </button>
+        </form>
+
+        {extras && (
+          <div class="mt-5 pt-4 border-t border-ds-line">
+            <Fragment set:html={extras} />
+          </div>
+        )}
+      </div>
+    </div>
+  </main>
+</AuthLayout>
+
+<script is:inline>
+  const form = document.getElementById('login-form');
+  const errorEl = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit');
+  const spinnerEl = document.getElementById('login-spinner');
+  const labelEl = document.getElementById('login-label');
+  let submitting = false;
+
+  function setLoading(loading) {
+    submitting = loading;
+    if (submitBtn) submitBtn.disabled = loading;
+    if (spinnerEl) spinnerEl.classList.toggle('hidden', !loading);
+    if (labelEl) labelEl.textContent = loading ? 'Signing in…' : 'Sign in';
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    setLoading(true);
+    if (errorEl) { errorEl.classList.add('hidden'); errorEl.textContent = ''; }
+    const data = new FormData(form);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: data.get('username'),
+          password: data.get('password'),
+        }),
+      });
+      if (res.ok) {
+        window.location.href = '/overview';
+        return;
+      }
+      let message = 'Invalid credentials';
+      try { message = (await res.json()).error || message; } catch {}
+      if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden'); }
+      setLoading(false);
+    } catch {
+      if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
+      setLoading(false);
+    }
+  });
+</script>

@@ -1,0 +1,63 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import NotificationsPanel from '@/components/settings/NotificationsPanel';
+import { getNotificationsRoutes } from '@/lib/config/keys';
+import type { NotificationPairing } from '@/lib/notifications/routing-types';
+import type { MaskedPairing } from '@/components/settings/notifications/types';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_NOTIFICATIONS)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+function maskSecret(value: string | undefined): string {
+  if (!value) return '';
+  if (value.length <= 4) return '••••';
+  return `••••${value.slice(-4)}`;
+}
+
+function maskPairing(p: NotificationPairing): MaskedPairing {
+  if (p.channel.type === 'email') {
+    return { id: p.id, name: p.name, enabled: p.enabled, events: p.events, channel: { type: 'email', recipients: p.channel.recipients } };
+  }
+  if (p.channel.type === 'slack') {
+    return {
+      id: p.id,
+      name: p.name,
+      enabled: p.enabled,
+      events: p.events,
+      channel: { type: 'slack', webhookUrl: maskSecret(p.channel.webhookUrl), webhookUrlHasStored: !!p.channel.webhookUrl },
+    };
+  }
+  return {
+    id: p.id,
+    name: p.name,
+    enabled: p.enabled,
+    events: p.events,
+    channel: {
+      type: 'webhook',
+      url: maskSecret(p.channel.url),
+      urlHasStored: !!p.channel.url,
+      secret: maskSecret(p.channel.secret),
+      secretHasStored: !!p.channel.secret,
+    },
+  };
+}
+
+const stored = (await getNotificationsRoutes().catch(() => null)) ?? [];
+const initial = { pairings: stored.map(maskPairing) };
+---
+
+<DashboardLayout title="Notifications" activeNav="settings.notifications">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <NotificationsPanel client:load initial={initial} />
+  </div>
+</DashboardLayout>

@@ -1,0 +1,342 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import {
+  loadAnalyticsKpi,
+  loadFunnelSteps,
+  loadMethodStats,
+  loadTrafficSources,
+  loadFunnelOptions,
+} from '@/lib/dashboard/analytics-data';
+import {
+  formatPercent,
+  formatMoney,
+  statusBadgeClasses,
+  resolveAnalyticsWindow,
+} from '@/lib/dashboard/analytics-helpers';
+import {
+  computeDelta,
+  formatNumber,
+} from '@/lib/dashboard/overview-helpers';
+import { TIMEZONE_OPTIONS } from '@/lib/constants/timezone';
+import { getSiteTimezone } from '@/lib/config/keys';
+import { cn } from '@/lib/utils';
+import { dsSelectClass, dsFieldClass } from '@/components/primitives/field-styles';
+import Stat from '@/components/primitives/ds/Stat';
+import { AnalystPanelLauncher } from '@/components/analytics';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.ANALYTICS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const url = new URL(Astro.request.url);
+const funnelId = url.searchParams.get('funnel') || '';
+
+const now = new Date();
+const siteTimezone = await getSiteTimezone().catch(() => undefined);
+const timeWindow = resolveAnalyticsWindow({
+  range: url.searchParams.get('range'),
+  start: url.searchParams.get('start'),
+  end: url.searchParams.get('end'),
+  tz: url.searchParams.get('tz') || siteTimezone,
+  now,
+});
+
+const [funnelOptions, kpi, steps, methodStats, trafficSources] = await Promise.all([
+  loadFunnelOptions().catch(() => []),
+  loadAnalyticsKpi({ funnelId: funnelId || null, window: timeWindow }).catch(() => ({
+    visits24h: 0, visitsPrev24h: 0,
+    conversionRate24h: 0, conversionRatePrev24h: 0,
+    orders24h: 0, ordersPrev24h: 0,
+    revenue24h: 0, revenuePrev24h: 0,
+    visitsSparkline: [], ordersSparkline: [], revenueSparkline: [],
+  })),
+  loadFunnelSteps({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
+  loadMethodStats({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
+  loadTrafficSources({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
+]);
+
+const presetRange = timeWindow.range === 'custom' ? '' : timeWindow.range;
+const customStart = timeWindow.range === 'custom' ? timeWindow.startDateStr : '';
+const customEnd = timeWindow.range === 'custom' ? timeWindow.endDateStr : '';
+
+const visitsDelta = computeDelta(kpi.visits24h, kpi.visitsPrev24h);
+const conversionDelta = computeDelta(kpi.conversionRate24h, kpi.conversionRatePrev24h);
+const ordersDelta = computeDelta(kpi.orders24h, kpi.ordersPrev24h);
+const revenueDelta = computeDelta(kpi.revenue24h, kpi.revenuePrev24h);
+
+const selectedFunnelName = funnelId
+  ? (funnelOptions.find((f) => f.id === funnelId)?.name || 'Unknown funnel')
+  : 'All funnels';
+
+const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
+---
+
+<DashboardLayout
+  title="Analytics"
+  activeNav="analytics"
+>
+  <AnalystPanelLauncher
+    slot="header-actions"
+    client:only="react"
+    funnelId={funnelId || undefined}
+    funnelName={funnelId ? selectedFunnelName : undefined}
+  />
+  <div class="grid grid-cols-12 gap-5">
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Stat
+          client:load
+          label={`Visits (${timeWindow.shortLabel})`}
+          value={formatNumber(kpi.visits24h)}
+          delta={{ ...visitsDelta, context: 'vs previous period' }}
+          sparkline={kpi.visitsSparkline}
+          sparklineColor="#2563EB"
+        />
+        <Stat
+          client:load
+          label={`Conversion rate (${timeWindow.shortLabel})`}
+          value={formatPercent(kpi.conversionRate24h)}
+          delta={{ ...conversionDelta, context: 'vs previous period' }}
+          sparkline={kpi.ordersSparkline}
+          sparklineColor="#16A34A"
+        />
+        <Stat
+          client:load
+          label={`Orders (${timeWindow.shortLabel})`}
+          value={formatNumber(kpi.orders24h)}
+          delta={{ ...ordersDelta, context: 'vs previous period' }}
+          sparkline={kpi.ordersSparkline}
+          sparklineColor="#6366F1"
+        />
+        <Stat
+          client:load
+          label={`Revenue (${timeWindow.shortLabel})`}
+          value={formatMoney(kpi.revenue24h)}
+          delta={{ ...revenueDelta, context: 'vs previous period' }}
+          sparkline={kpi.revenueSparkline}
+          sparklineColor="#16A34A"
+        />
+      </div>
+    </div>
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-4">
+      <form method="get" action="/analytics" class="flex items-end justify-between gap-4 flex-wrap">
+        <input type="hidden" name="range" id="af-range" value={presetRange} />
+        <div class="flex items-end gap-3 flex-wrap">
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">Funnel</label>
+            <select
+              name="funnel"
+              onchange="this.form.submit()"
+              class={cn(dsSelectClass, "h-8 min-w-[180px]")}
+            >
+              <option value="">All funnels</option>
+              {funnelOptions.map((f) => (
+                <option value={f.id} selected={funnelId === f.id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">Quick range</label>
+            <div class="inline-flex rounded-[7px] border border-ds-line overflow-hidden h-8">
+              {(['24h', '7d', '30d'] as const).map((r, i) => (
+                <button
+                  type="button"
+                  data-range={r}
+                  class={cn(
+                    "af-preset px-3 text-[12.5px] font-medium",
+                    i > 0 && "border-l border-ds-line",
+                    timeWindow.range === r ? "bg-ds-ink text-ds-card" : "bg-ds-card text-ds-slate hover:bg-[#F9FAFB]",
+                  )}
+                >{r}</button>
+              ))}
+            </div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">From</label>
+            <input type="date" name="start" id="af-start" value={customStart} class={cn(dsFieldClass, "h-8 w-[150px]")} />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">To</label>
+            <input type="date" name="end" id="af-end" value={customEnd} class={cn(dsFieldClass, "h-8 w-[150px]")} />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">Timezone</label>
+            <select name="tz" onchange="this.form.submit()" class={cn(dsSelectClass, "h-8 min-w-[110px]")}>
+              {TIMEZONE_OPTIONS.map((o) => (
+                <option value={o.value} selected={timeWindow.tz === o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="submit"
+            class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-4 text-[13px] bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937]"
+          >
+            Apply
+          </button>
+        </div>
+        <div class="text-right">
+          <div class="text-[12.5px] text-ds-muted">Showing</div>
+          <div class="text-[14px] font-semibold text-ds-ink mt-0.5">{selectedFunnelName} · {timeWindow.label}</div>
+        </div>
+      </form>
+    </div>
+
+    <div class="col-span-12 xl:col-span-7 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4 flex items-center justify-between">
+        <div>
+          <div class="text-[14px] font-semibold text-ds-ink">Funnel steps</div>
+          <div class="text-[12.5px] text-ds-muted mt-0.5">
+            Per-step page views · {timeWindow.label}
+          </div>
+        </div>
+        <a
+          href={funnelId ? `/funnel/${funnelId}/analytics` : '/funnels'}
+          class="inline-flex items-center justify-center font-medium rounded-[6px] h-7 px-3 text-[12px] bg-ds-card border border-ds-line text-ds-ink hover:bg-[#F9FAFB] no-underline"
+        >
+          {funnelId ? 'Detailed view' : 'Choose funnel'}
+        </a>
+      </div>
+      {steps.length === 0 ? (
+        <div class="px-6 py-12 text-center text-[13px] text-ds-muted">No funnel data yet.</div>
+      ) : (
+        <div class="px-6 pb-5 flex flex-col gap-3">
+          {steps.map((s) => {
+            const w = Math.round((s.count / maxStepCount) * 100);
+            return (
+              <div>
+                <div class="flex items-center justify-between text-[12.5px] mb-1">
+                  <span class="text-ds-slate">{s.label}</span>
+                  <span class="font-ds-mono tabular text-ds-ink">
+                    {formatNumber(s.count)}
+                    {s.dropRate > 0 && (
+                      <span class="text-ds-bad ml-2">↓ {s.dropRate.toFixed(1)}%</span>
+                    )}
+                  </span>
+                </div>
+                <div class="h-2 bg-ds-surface2 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-ds-accent rounded-full"
+                    style={`width: ${Math.max(2, w)}%;`}
+                  ></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+
+    <div class="col-span-12 xl:col-span-5 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4">
+        <div class="text-[14px] font-semibold text-ds-ink">Payment methods</div>
+        <div class="text-[12.5px] text-ds-muted mt-0.5">
+          Submits / successes / failures by method · {timeWindow.label}
+        </div>
+      </div>
+      {methodStats.length === 0 ? (
+        <div class="px-6 py-12 text-center text-[13px] text-ds-muted">No payment data yet.</div>
+      ) : (
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Method</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Submits</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Success</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Fail</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {methodStats.map((m) => {
+                const tone = m.successRate >= 80 ? 'ok' : m.successRate >= 50 ? 'warn' : 'bad';
+                return (
+                  <tr class="hover:bg-ds-surface2 transition-colors">
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">{m.label}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatNumber(m.submits)}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatNumber(m.successes)}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatNumber(m.failures)}</td>
+                    <td class="px-4 py-3 border-b border-[#F3F4F6] text-right">
+                      <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${statusBadgeClasses(tone)}`}>
+                        <span class="font-ds-mono tabular">{formatPercent(m.successRate, 1)}</span>
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+      <div class="px-6 pt-5 pb-4">
+        <div class="text-[14px] font-semibold text-ds-ink">Traffic sources</div>
+        <div class="text-[12.5px] text-ds-muted mt-0.5">
+          First visits vs paid orders by source · {timeWindow.label}
+        </div>
+      </div>
+      {trafficSources.length === 0 ? (
+        <div class="px-6 py-12 text-center text-[13px] text-ds-muted">No traffic data yet.</div>
+      ) : (
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Source</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Visits</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Orders</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Revenue</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">CVR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trafficSources.map((t) => {
+                const cvr = t.visits > 0 ? (t.orders / t.visits) * 100 : 0;
+                return (
+                  <tr class="hover:bg-ds-surface2 transition-colors">
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">
+                      <div class="font-medium">{t.label}</div>
+                      <div class="text-[11px] text-ds-faint font-ds-mono tabular truncate">{t.source}</div>
+                    </td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatNumber(t.visits)}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatNumber(t.orders)}</td>
+                    <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatMoney(t.revenue)}</td>
+                    <td class="px-4 py-3 text-[12.5px] text-ds-slate border-b border-[#F3F4F6] text-right font-ds-mono tabular">{formatPercent(cvr, 1)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.af-preset').forEach((el) => {
+      el.addEventListener('click', () => {
+        const btn = el as HTMLElement;
+        const form = btn.closest('form') as HTMLFormElement | null;
+        if (!form) return;
+        const start = form.querySelector('#af-start') as HTMLInputElement | null;
+        const end = form.querySelector('#af-end') as HTMLInputElement | null;
+        const range = form.querySelector('#af-range') as HTMLInputElement | null;
+        if (start) start.value = '';
+        if (end) end.value = '';
+        if (range) range.value = btn.dataset.range || '';
+        form.submit();
+      });
+    });
+  </script>
+</DashboardLayout>

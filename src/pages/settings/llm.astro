@@ -1,0 +1,37 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import LlmPanel from '@/components/settings/LlmPanel';
+import { listLlmModels } from '@/lib/config/llm-models';
+import type { LlmModel } from '@/lib/config/llm-models-types';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_LLM)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+function maskApiKey(key: string | undefined): string {
+  if (!key) return '';
+  if (key.length <= 4) return '••••';
+  return `••••${key.slice(-4)}`;
+}
+
+const rows = await listLlmModels().catch(() => [] as LlmModel[]);
+const initialModels: LlmModel[] = rows.map((r) => ({ ...r, apiKey: maskApiKey(r.apiKey) }));
+---
+
+<DashboardLayout
+  title="LLM"
+  activeNav="settings.llm"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <LlmPanel client:load initialModels={initialModels} />
+  </div>
+</DashboardLayout>

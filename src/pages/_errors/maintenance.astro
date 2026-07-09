@@ -1,0 +1,42 @@
+---
+import ErrorLayout from '@/components/layout/ErrorLayout.astro';
+import { getMaintenanceConfig } from '@/lib/config/keys';
+
+let message: string | null = null;
+let passwordRequired = false;
+try {
+  const maintenance = await getMaintenanceConfig();
+  message = maintenance?.message ?? null;
+  passwordRequired = !!maintenance?.passwordHash;
+} catch {
+}
+
+const url = new URL(Astro.request.url);
+const errorParam = url.searchParams.get('error');
+
+Astro.response.status = 503;
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+---
+
+<ErrorLayout
+  status={503}
+  title="Site under maintenance"
+  heading="Site under maintenance"
+  description="This storefront is temporarily unavailable while the team performs scheduled maintenance."
+>
+  {message && (
+    <p style="margin-top:14px;white-space:pre-line;font-size:13.5px;line-height:1.6;color:#4B5563;">{message}</p>
+  )}
+  {errorParam && (
+    <div style="margin-top:16px;padding:10px 12px;border:1px solid #FCA5A5;background:#FEF2F2;border-radius:7px;color:#B91C1C;font-size:12.5px;">
+      {errorParam}
+    </div>
+  )}
+  {passwordRequired && (
+    <form method="POST" action="/api/shop/maintenance-unlock" style="margin-top:24px;display:flex;flex-direction:column;gap:8px;">
+      <label for="password" style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.04em;color:#6B7280;">Maintenance password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required style="height:36px;padding:0 12px;border:1px solid #E5E7EB;border-radius:7px;font-size:13.5px;color:#111827;background:#FFFFFF;outline:none;" />
+      <button type="submit" class="btn-primary">Unlock</button>
+    </form>
+  )}
+</ErrorLayout>

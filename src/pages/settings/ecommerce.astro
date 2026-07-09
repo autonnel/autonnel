@@ -1,0 +1,99 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import EcommerceConfigPanel from '@/components/settings/EcommerceConfigPanel';
+import { getConfig } from '@/lib/config/get-config';
+import { readEnv } from '@/lib/runtime/env';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_ECOMMERCE)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+interface EcommerceConfigValue {
+  provider: 'SHOPIFY' | 'WOOCOMMERCE' | 'PICOCART';
+  credentials: Record<string, unknown>;
+  isActive?: boolean;
+  fulfillmentMode?: 'merged' | 'split';
+}
+
+const stored = await getConfig<EcommerceConfigValue>('ecommerce.config').catch(() => undefined);
+
+function normalizeProvider(value: unknown): 'SHOPIFY' | 'WOOCOMMERCE' | 'PICOCART' {
+  const v = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (v === 'WOOCOMMERCE') return 'WOOCOMMERCE';
+  if (v === 'PICOCART') return 'PICOCART';
+  return 'SHOPIFY';
+}
+
+let initial: {
+  hasConfig: boolean;
+  provider: 'SHOPIFY' | 'WOOCOMMERCE' | 'PICOCART';
+  fulfillmentMode: 'merged' | 'split';
+  shopify: { shopDomain: string; apiVersion: string; disableNotifications: boolean };
+  woo: { siteUrl: string; apiVersion: string };
+  picocart: { baseUrl: string; apiVersion: string };
+};
+
+if (stored) {
+  const creds = (stored.credentials || {}) as Record<string, unknown>;
+  const mode = stored.fulfillmentMode === 'split' ? 'split' : 'merged';
+  const provider = normalizeProvider(stored.provider);
+  initial = {
+    hasConfig: true,
+    provider,
+    fulfillmentMode: mode,
+    shopify:
+      provider === 'SHOPIFY'
+        ? {
+            shopDomain: typeof creds.shopDomain === 'string' ? creds.shopDomain : '',
+            apiVersion: typeof creds.apiVersion === 'string' ? creds.apiVersion : '2025-01',
+            disableNotifications:
+              typeof creds.disableNotifications === 'boolean' ? creds.disableNotifications : true,
+          }
+        : { shopDomain: '', apiVersion: '2025-01', disableNotifications: true },
+    woo:
+      provider === 'WOOCOMMERCE'
+        ? {
+            siteUrl: typeof creds.siteUrl === 'string' ? creds.siteUrl : '',
+            apiVersion: typeof creds.apiVersion === 'string' ? creds.apiVersion : 'wc/v3',
+          }
+        : { siteUrl: '', apiVersion: 'wc/v3' },
+    picocart:
+      provider === 'PICOCART'
+        ? {
+            baseUrl: typeof creds.baseUrl === 'string' ? creds.baseUrl : '',
+            apiVersion: typeof creds.apiVersion === 'string' ? creds.apiVersion : '2024-01',
+          }
+        : { baseUrl: '', apiVersion: '2024-01' },
+  };
+} else {
+  initial = {
+    hasConfig: false,
+    provider: 'SHOPIFY',
+    fulfillmentMode: 'merged',
+    shopify: { shopDomain: '', apiVersion: '2025-01', disableNotifications: true },
+    woo: { siteUrl: '', apiVersion: 'wc/v3' },
+    picocart: { baseUrl: '', apiVersion: '2024-01' },
+  };
+}
+
+const DEFAULT_SHOPIFY_CONNECT_APP_URL = 'https://shopify-app.autonnel.com';
+const shopifyConnectAppUrl = readEnv('SHOPIFY_CONNECT_APP_URL') || DEFAULT_SHOPIFY_CONNECT_APP_URL;
+---
+
+<DashboardLayout
+  title="Headless Ecommerce"
+  activeNav="settings.ecommerce"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <EcommerceConfigPanel client:load initial={initial} shopifyConnectAppUrl={shopifyConnectAppUrl} />
+  </div>
+</DashboardLayout>

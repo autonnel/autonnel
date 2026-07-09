@@ -1,0 +1,54 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import StoragePanel from '@/components/settings/StoragePanel';
+import { getConfig } from '@/lib/config/get-config';
+import { maskSecretKey, type SiteS3Config } from '@/lib/s3';
+import { getDefaultCdnUrl } from '@/lib/config/keys';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_STORAGE)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const stored = await getConfig<SiteS3Config>('storage.s3').catch(() => undefined);
+const staticDomain = (await getDefaultCdnUrl().catch(() => undefined)) ?? '';
+
+const initial = stored
+  ? {
+      endpoint: stored.endpoint || '',
+      region: stored.region || 'auto',
+      bucket: stored.bucket || '',
+      accessKeyId: stored.accessKeyId || '',
+      secretAccessKey: stored.secretAccessKey ? maskSecretKey(stored.secretAccessKey) : '',
+      keyPrefix: stored.keyPrefix ?? '',
+      hasConfig: true,
+      staticDomain,
+    }
+  : {
+      endpoint: '',
+      region: 'auto',
+      bucket: '',
+      accessKeyId: '',
+      secretAccessKey: '',
+      keyPrefix: '',
+      hasConfig: false,
+      staticDomain,
+    };
+---
+
+<DashboardLayout
+  title="Storage"
+  activeNav="settings.storage"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <StoragePanel client:load initial={initial} />
+  </div>
+</DashboardLayout>

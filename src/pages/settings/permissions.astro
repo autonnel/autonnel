@@ -1,0 +1,46 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth, checkPermissionsAccess } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import RolesAndFeaturesPanel from '@/components/settings/permissions/RolesAndFeaturesPanel';
+import { loadPermissionsPageData } from '@/lib/dashboard/permissions-data';
+import { buildFeatureGroups } from '@/lib/dashboard/permissions-helpers';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.SETTINGS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+const canManagePermissions = await checkPermissionsAccess(Astro);
+if (!canManagePermissions) {
+  return Astro.redirect('/settings/branding');
+}
+
+const permissionsData = await loadPermissionsPageData().catch(() => null);
+const featureGroups = buildFeatureGroups();
+
+const initialRoles = (permissionsData?.roles ?? []).map((r) => ({
+  ...r,
+  userCount: r.userCount ?? 0,
+}));
+---
+
+<DashboardLayout
+  title="Roles & Permissions"
+  activeNav="settings.permissions"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    {permissionsData && (
+      <RolesAndFeaturesPanel
+        client:load
+        initialRoles={initialRoles}
+        initialUsers={permissionsData.users}
+        featureGroups={featureGroups}
+        canCreateRole={true}
+      />
+    )}
+  </div>
+</DashboardLayout>

@@ -1,0 +1,154 @@
+---
+import type { Data } from '@puckeditor/core';
+import EditorLayout from '@/layouts/EditorLayout.astro';
+import PageEditor from '@/components/PageEditor';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { getPaymentProviderEntryWithCredentials } from '@/lib/config/payment';
+import { migratePuckData } from '@/components/builder/migrate-keys';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PAGES);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const { pageId } = Astro.params;
+const db = getTenantPrisma();
+const page = await db.page.findFirst({ where: { id: pageId } });
+if (!page) {
+  return Astro.redirect('/pages');
+}
+
+const editorPage = {
+  ...page,
+  draftData: migratePuckData(page.draftData as Data | null),
+  publishedData: migratePuckData(page.publishedData as Data | null),
+  draftSettings: page.draftSettings as Record<string, any> | null,
+  settings: page.settings as Record<string, any> | null,
+  meta: page.meta as Record<string, any> | null,
+  planContent: page.planContent as any,
+};
+
+async function resolveFunnelCtaUrl(targetPageId: string): Promise<string | null> {
+  const funnels = await db.funnel.findMany({ select: { id: true, steps: true } });
+  for (const f of funnels) {
+    const steps = (f.steps as Array<{ stepSlug?: string; pageId?: string }>) || [];
+    const idx = steps.findIndex((s) => s.pageId === targetPageId);
+    if (idx === -1) continue;
+    const next = steps[idx + 1];
+    if (next && next.stepSlug) {
+      return `/n/${f.id}/${next.stepSlug}`;
+    }
+  }
+  return null;
+}
+
+const funnelCtaUrl = await resolveFunnelCtaUrl(page.id);
+
+const products: any[] = [];
+
+const paymentConfig: { paypal: any } = { paypal: null };
+const paypalEntry = await getPaymentProviderEntryWithCredentials('PAYPAL');
+if (paypalEntry && paypalEntry.isActive) {
+  const creds = (paypalEntry.credentials as Record<string, any>) || {};
+  const settings = (paypalEntry.settings as Record<string, any>) || {};
+  paymentConfig.paypal = {
+    clientId:
+      creds.clientId ||
+      creds.client_id ||
+      process.env.PAYPAL_APP_CLIENT_ID ||
+      import.meta.env.PAYPAL_APP_CLIENT_ID ||
+      '',
+    merchantId: creds.merchantIdInPayPal || '',
+    mode: creds.mode || settings.mode || 'sandbox',
+    currency: settings.currency || 'USD',
+    enableCardFields: settings.enableCardFields || false,
+  };
+}
+
+if (paymentConfig.paypal) {
+  const puckData = migratePuckData(page.draftData || page.publishedData) as any;
+
+  function scanComponents(content: any[]): string | null {
+    if (!Array.isArray(content)) return null;
+    for (const component of content) {
+      if (
+        component?.type === 'VariantSelector' &&
+        Array.isArray(component?.props?.selectedItems) &&
+        component.props.selectedItems.length > 0
+      ) {
+        const currency = component.props.selectedItems[0]?.currency;
+        if (currency) return currency;
+      }
+    }
+    return null;
+  }
+
+  let detectedCurrency: string | null = null;
+  if (puckData) {
+    detectedCurrency = scanComponents(puckData.content);
+    if (!detectedCurrency && puckData.zones) {
+      detectedCurrency = Object.values(puckData.zones).reduce<string | null>(
+        (found, zoneContent) => found || scanComponents(zoneContent as any[]),
+        null,
+      );
+    }
+  }
+
+  if (detectedCurrency) {
+    paymentConfig.paypal.currency = detectedCurrency;
+  }
+}
+
+const googleMapsApiKey =
+  import.meta.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
+
+const paypalSdkUrl = paymentConfig.paypal?.clientId
+  ? `https://www.paypal.com/sdk/js?client-id=${paymentConfig.paypal.clientId}&currency=${paymentConfig.paypal.currency}&intent=capture` +
+    (paymentConfig.paypal.merchantId ? `&merchant-id=${paymentConfig.paypal.merchantId}` : '') +
+    (paymentConfig.paypal.enableCardFields ? `&components=buttons,card-fields` : '')
+  : null;
+---
+
+<EditorLayout title={`Edit · ${page.name}`}>
+  {
+    paymentConfig.paypal?.clientId && (
+      <script is:inline src={paypalSdkUrl} data-sdk-integration-source="button-factory" />
+    )
+  }
+
+  {
+    googleMapsApiKey && (
+      <script
+        is:inline
+        async
+        src={`https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`}
+      />
+    )
+  }
+
+  <script
+    is:inline
+    define:vars={{
+      pageIdValue: pageId,
+      paymentConfigData: paymentConfig,
+      googleMapsApiKeyValue: googleMapsApiKey,
+      funnelCtaUrlValue: funnelCtaUrl,
+    }}
+  >
+    window.__AUTONNEL_PAGE_ID__ = pageIdValue;
+    window.__PAYMENT_CONFIG__ = paymentConfigData;
+    window.__PAYPAL_CLIENT_ID__ = paymentConfigData?.paypal?.clientId || '';
+    window.__GOOGLE_MAPS_API_KEY__ = googleMapsApiKeyValue;
+    window.__FUNNEL_CTA_URL__ = funnelCtaUrlValue;
+    window.__FUNNEL_NEXT_STEP_URL__ = funnelCtaUrlValue;
+  </script>
+
+  <PageEditor client:only="react" page={editorPage} products={products} user={auth.user} />
+</EditorLayout>

@@ -1,0 +1,18 @@
+---
+import ErrorLayout from '@/components/layout/ErrorLayout.astro';
+
+const url = new URL(Astro.request.url);
+const host = url.searchParams.get('host') || Astro.request.headers.get('host') || '';
+
+Astro.response.status = 404;
+Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+---
+
+<ErrorLayout
+  status={404}
+  title="Domain not configured"
+  heading="Domain not configured"
+  description="This domain is not yet bound to any storefront. If you own this domain, add it to your storefront settings and try again."
+  detail={host}
+  detailLabel="Host"
+/>

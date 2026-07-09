@@ -1,0 +1,42 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import CouponManager from '@/components/settings/CouponManager';
+import { makeCoupons } from '@/composition/make-coupons';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_COUPON)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const rawCoupons = await makeCoupons().list().catch(() => []);
+const initialCoupons = rawCoupons.map((c) => ({
+  id: c.id,
+  name: c.name,
+  code: c.code,
+  discountType: c.discountType as 'PERCENTAGE' | 'FIXED_AMOUNT',
+  discountValue: c.discountValue.toString(),
+  minOrderAmount: c.minOrderAmount?.toString() ?? null,
+  maxUsages: c.maxUsages,
+  usageCount: c.usageCount,
+  isActive: c.isActive,
+  expiresAt: c.expiresAt?.toISOString() ?? null,
+  createdAt: c.createdAt.toISOString(),
+}));
+---
+
+<DashboardLayout
+  title="Coupons"
+  activeNav="settings.coupons"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <CouponManager client:load initialCoupons={initialCoupons} />
+  </div>
+</DashboardLayout>

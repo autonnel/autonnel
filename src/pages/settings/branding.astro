@@ -1,0 +1,40 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import BrandingPanel from '@/components/settings/BrandingPanel';
+import { getBrandingName, getBrandingLogo, getBrandingFavicon } from '@/lib/config/keys';
+import { normalizeFavicon, normalizeLogo } from '@/lib/branding/types';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess =
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS_BRANDING)) ||
+  (await userHasFeature(auth.user.id, FEATURES.SETTINGS));
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const [name, logo, favicon] = await Promise.all([
+  getBrandingName().catch(() => undefined),
+  getBrandingLogo().catch(() => undefined),
+  getBrandingFavicon().catch(() => undefined),
+]);
+
+const initial = {
+  name: name ?? '',
+  favicon: normalizeFavicon(favicon as never),
+  logo: normalizeLogo(logo as never),
+};
+---
+
+<DashboardLayout
+  title="Branding"
+  activeNav="settings.branding"
+>
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+    <BrandingPanel client:load initial={initial} />
+  </div>
+</DashboardLayout>

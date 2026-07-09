@@ -1,0 +1,73 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import GoogleMapsPanel from '@/components/settings/GoogleMapsPanel';
+import BrowserRenderingPanel from '@/components/settings/BrowserRenderingPanel';
+import {
+  getGoogleMapsApiKey,
+  getCfBrowserRenderingAccountId,
+  getCfBrowserRenderingApiToken,
+} from '@/lib/config/keys';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const [hasSettings, canGoogleMaps, canBrowserRendering] = await Promise.all([
+  userHasFeature(auth.user.id, FEATURES.SETTINGS),
+  userHasFeature(auth.user.id, FEATURES.SETTINGS_GOOGLE_MAPS),
+  userHasFeature(auth.user.id, FEATURES.SETTINGS_BROWSER_RENDERING),
+]);
+
+const showGoogleMaps = hasSettings || canGoogleMaps;
+const showBrowserRendering = hasSettings || canBrowserRendering;
+
+if (!showGoogleMaps && !showBrowserRendering) {
+  return Astro.redirect('/');
+}
+
+function mask(value: string | undefined): string {
+  if (!value) return '';
+  if (value.length <= 4) return '••••';
+  return `••••${value.slice(-4)}`;
+}
+
+const [apiKey, accountId, apiToken] = await Promise.all([
+  getGoogleMapsApiKey().catch(() => undefined),
+  getCfBrowserRenderingAccountId().catch(() => undefined),
+  getCfBrowserRenderingApiToken().catch(() => undefined),
+]);
+
+const googleMapsInitial = {
+  apiKeyMasked: mask(apiKey),
+  hasConfig: Boolean(apiKey),
+};
+
+const browserRenderingInitial = {
+  accountId: accountId ?? '',
+  apiTokenMasked: mask(apiToken),
+  hasToken: Boolean(apiToken),
+};
+---
+
+<DashboardLayout
+  title="Integrations"
+  activeNav="settings.integrations"
+>
+  <div class="flex flex-col gap-6">
+    {showGoogleMaps && (
+      <section class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+        <h2 class="text-[14px] font-semibold text-ds-ink mb-4">Google Maps</h2>
+        <GoogleMapsPanel client:load initial={googleMapsInitial} />
+      </section>
+    )}
+    {showBrowserRendering && (
+      <section class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
+        <h2 class="text-[14px] font-semibold text-ds-ink mb-4">Browser Rendering</h2>
+        <BrowserRenderingPanel client:load initial={browserRenderingInitial} />
+      </section>
+    )}
+  </div>
+</DashboardLayout>

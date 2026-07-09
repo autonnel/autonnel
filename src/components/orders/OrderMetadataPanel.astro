@@ -1,0 +1,27 @@
+---
+interface Props {
+  id: string;
+  saleRef: string;
+  trackingCarrier?: string | null;
+  trackingNumber?: string | null;
+  backendOrderRef?: string | null;
+}
+
+const { id, saleRef, trackingCarrier, trackingNumber, backendOrderRef } = Astro.props;
+---
+
+<div class="rounded-[10px] border border-[#111827] bg-[#1F2937] text-[#D1D5DB] overflow-hidden">
+  <div class="px-4 py-3 border-b border-[#374151]">
+    <div class="text-[13px] font-semibold text-[#E5E7EB]">Metadata</div>
+  </div>
+  <div class="px-4 py-3 font-ds-mono text-[11.5px] leading-relaxed overflow-auto" style="max-height: 300px;">
+    <div><span class="text-[#9CA3AF]">order_id</span> = <span class="text-[#A7F3D0]">{id}</span></div>
+    <div><span class="text-[#9CA3AF]">sale_ref</span> = <span class="text-[#E5E7EB]">{saleRef}</span></div>
+    {trackingNumber && (
+      <div><span class="text-[#9CA3AF]">tracking#</span> = <span class="text-[#E5E7EB]">{trackingCarrier || ''} {trackingNumber}</span></div>
+    )}
+    {backendOrderRef && (
+      <div><span class="text-[#9CA3AF]">backend</span> = <span class="text-[#E5E7EB]">{backendOrderRef}</span></div>
+    )}
+  </div>
+</div>

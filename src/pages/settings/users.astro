@@ -1,0 +1,55 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import UsersPanel from '@/components/settings/users/UsersPanel';
+import { loadPermissionsPageData } from '@/lib/dashboard/permissions-data';
+import { makeIdentity } from '@/composition/make-identity';
+import { resolveIdentityDeps } from '@/composition/identity-deps';
+import type { InvitationDto } from '@/contracts/identity';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.SETTINGS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const permissionsData = await loadPermissionsPageData().catch(() => null);
+
+async function loadInvitations(): Promise<InvitationDto[]> {
+  const identity = makeIdentity(resolveIdentityDeps(Astro));
+  const [rows, roles] = await Promise.all([
+    identity.invitations.list(),
+    identity.roleDashboard.listRoles(),
+  ]);
+  const roleNameById = new Map(roles.map((r) => [r.id, r.name] as const));
+  return rows.map((inv) => ({
+    id: inv.id,
+    email: inv.email,
+    role: inv.invitedRoleIds.map((id) => roleNameById.get(id) ?? id).join(', '),
+    token: '',
+    expiresAt: inv.expiresAt.toISOString(),
+    acceptedAt: inv.acceptedAt ? inv.acceptedAt.toISOString() : null,
+    createdAt: inv.createdAt.toISOString(),
+  }));
+}
+
+const initialInvitations = await loadInvitations().catch(() => [] as InvitationDto[]);
+---
+
+<DashboardLayout
+  title="Users"
+  activeNav="settings.users"
+>
+  {permissionsData && (
+    <UsersPanel
+      client:load
+      initialUsers={permissionsData.users}
+      initialRoles={permissionsData.roles}
+      initialInvitations={initialInvitations}
+    />
+  )}
+</DashboardLayout>

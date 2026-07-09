@@ -1,0 +1,37 @@
+---
+import type { Banner } from '@/lib/plugins/types';
+
+interface Props {
+  banners: Banner[];
+}
+
+const { banners } = Astro.props;
+
+const COLORS: Record<NonNullable<Banner['kind']>, { bg: string; border: string; fg: string }> = {
+  info: { bg: '#EFF6FF', border: '#BFDBFE', fg: '#1E3A8A' },
+  warning: { bg: '#FEF3C7', border: '#FDE68A', fg: '#92400E' },
+  error: { bg: '#FEE2E2', border: '#FECACA', fg: '#991B1B' },
+};
+---
+
+{banners.length > 0 && (
+  <div class="flex flex-col">
+    {banners.map((b) => {
+      const c = COLORS[b.kind ?? 'warning'];
+      return (
+        <div
+          role="status"
+          style={`background:${c.bg};border-bottom:1px solid ${c.border};color:${c.fg};`}
+          class="px-6 py-2 text-[12.5px] flex items-center gap-3"
+        >
+          <span class="flex-1 truncate">{b.message}</span>
+          {b.actionLabel && b.actionHref && (
+            <a href={b.actionHref} class="font-semibold underline shrink-0">
+              {b.actionLabel}
+            </a>
+          )}
+        </div>
+      );
+    })}
+  </div>
+)}
