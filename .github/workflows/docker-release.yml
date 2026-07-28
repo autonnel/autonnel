@@ -54,7 +54,10 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            # Tag pushes are not on the default branch, so is_default_branch is
+            # false there. Without this, `latest` never moves past the first
+            # image ever pushed.
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
 
       - uses: docker/build-push-action@v6
         with:

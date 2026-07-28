@@ -1,0 +1,83 @@
+# Autonnel, running in one command:
+#
+#   docker compose up
+#
+# Then open http://localhost:4321 and complete the /setup wizard.
+# Nothing else is required to boot: no Node install, no external Postgres,
+# no S3 bucket, no email provider. Those are configured later in the admin
+# UI under Settings, and only when you need the features that use them.
+#
+# Production note: the two secrets below have baked-in development defaults so
+# that `docker compose up` works with zero configuration. Before exposing this
+# to the internet, generate your own and put them in a .env file next to this
+# compose file:
+#
+#   AUTH_SESSION_SECRET=$(openssl rand -hex 32)
+#   CREDENTIALS_ENCRYPTION_KEY=$(openssl rand -base64 32)
+#
+# Rotating either value invalidates existing sessions and makes stored provider
+# credentials unreadable, so generate once and keep them stable.
+#
+# Note: Compose reads that .env file automatically, and values in it win over the
+# defaults below. If ADMIN_DOMAIN is set there, the admin UI is served on that
+# hostname instead of localhost.
+
+name: autonnel
+
+x-db-url: &db-url "postgresql://autonnel:autonnel@db:5432/autonnel"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: autonnel
+      POSTGRES_PASSWORD: autonnel
+      POSTGRES_DB: autonnel
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autonnel -d autonnel"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # One-shot: creates/updates the tables, then exits. Runs again on every
+  # `docker compose up`, which is also how you apply an Autonnel upgrade.
+  schema:
+    image: ghcr.io/autonnel/autonnel:${AUTONNEL_TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: *db-url
+    # Prisma 7 reads the datasource URL from prisma.config.ts, which is not part
+    # of the runtime image, so pass it explicitly with --url.
+    command:
+      - node_modules/.bin/prisma
+      - db
+      - push
+      - --schema=./prisma/schema.prisma
+      - --url
+      - *db-url
+    restart: "no"
+
+  app:
+    image: ghcr.io/autonnel/autonnel:${AUTONNEL_TAG:-latest}
+    depends_on:
+      schema:
+        condition: service_completed_successfully
+    ports:
+      - "${AUTONNEL_PORT:-4321}:4321"
+    environment:
+      DATABASE_URL: *db-url
+      # Admin UI is served only on hosts matching ADMIN_DOMAIN; every other host
+      # serves the storefront. The port is ignored when matching.
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-localhost}
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:-dev-only-insecure-session-secret-change-me}
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-ZGV2LW9ubHktaW5zZWN1cmUta2V5LWNoYW5nZS1tZQ==}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
