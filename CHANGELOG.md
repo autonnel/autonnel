@@ -23,6 +23,10 @@
 - Docker examples now use image tags that exist (`:latest`, `:1.3.0`, `:1.3`, `:1`) instead of `:0.1.0`.
 - Documented how to apply schema changes in a Docker deployment, and how to run the CLI (`admin:create`, `password:reset`) inside a container.
 
+### Tests
+
+- `tests/unit/cli/create.test.ts` still tested `detectPackageManager` and `buildCreateCommand`, two functions that were removed when the scaffolder was reduced to a shallow clone. Every release build failed on them, which is why `v1.3.1` and `v1.3` never produced a container image. The suite now covers what `runCreate` actually does.
+
 ### CI
 
 - The `latest` tag is now published on tag builds. Previously `latest` was gated on `is_default_branch`, which is false during a tag push, so `latest` never moved past the first image that was pushed.
