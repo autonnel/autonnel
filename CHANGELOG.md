@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.5.0
+
+### BREAKING CHANGES
+
+- **`domains.host` is now globally unique.** Two tenants can no longer claim the same host. `npm run db:push` cannot create the constraint while duplicates exist, so de-duplicate the `domains` table before upgrading.
+- **Forwarding headers are no longer trusted by default.** Per-IP rate limiting read `x-forwarded-for` / `x-real-ip` unconditionally, so on a directly reachable deployment a client could rotate the header and get a fresh bucket per request. The source IP now comes only from what the new `TRUSTED_PROXY` env allows: `cloudflare` trusts `cf-connecting-ip`, `forwarded` trusts `x-forwarded-for`, `none` attributes nothing. Unset means trust `cf-connecting-ip` on Cloudflare Workers and nothing on other runtimes. **If you run behind your own reverse proxy, set `TRUSTED_PROXY="forwarded"`**, otherwise all traffic collapses into one shared rate-limit bucket.
+
+### Security
+
+Remediation of a 28-finding audit.
+
+- **Authorization:** API keys are capped by their creator's permissions, every `/api/v1.1/` route enforces its feature grant, draft page preview requires PAGES, and invitation roles come from the invite token instead of the request body.
+- **Checkout ownership:** the signed checkout session must own the sale before an upsell charge, a Stripe confirm, or buyer PII on the thank-you page. Knowing an order id was previously enough.
+- **SSRF:** outbound fetches pin the connection to the address that passed validation, closing DNS rebinding between check and connect; runtimes that can neither resolve nor pin now refuse the request instead of proceeding.
+- **Credential replay:** a stored LLM API key is only ever replayed to the provider, model and base URL it was stored with, so a caller cannot point the connection test at their own endpoint to read a masked key back out.
+- **Tenant isolation:** RBAC cache keys and background job execution are tenant-scoped.
+- **Input bounds:** the activity beacon and catalog fan-out have explicit caps, and the maintenance unlock is throttled before it reaches bcrypt.
+- **Atomicity:** coupon usage increments conditionally, outbox events are claimed by lease.
+- **Hygiene:** CSV export neutralizes formula injection, `/api/health` no longer returns exception detail, OAuth state is signed and single-use, and postbacks honour the recorded consent decision.
+
+### Added
+
+- **`CHECKOUT_COOKIE_SECRET`** (optional) signs storefront checkout cookies with a key separate from the admin session key, and falls back to `AUTH_SESSION_SECRET` when unset.
+- Checkout API requests are validated at the adapter boundary.
+- A versioned codec for the live cached catalog store, so a payload written by an older release is discarded rather than misread.
+
+### Fixed
+
+- **Fulfillment sync no longer polls dead orders forever.** An order the commerce backend never resolves (deleted upstream, or carrying a ref from a previous provider) stayed PAID and was re-polled on every tick, costing one upstream API call each time. The sweep now only considers orders created within the last 30 days.
+
+### Documentation
+
+- README rewritten with demo GIFs.
+- `TRUSTED_PROXY` and `CHECKOUT_COOKIE_SECRET` documented in `.env.example`.
+
 ## 1.4.0
 
 ### BREAKING CHANGES
