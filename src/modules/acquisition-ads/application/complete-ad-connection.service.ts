@@ -9,7 +9,7 @@ interface Deps {
   tokenCipher: TokenCipherPort;
   connectionRepo: ConnectionRepositoryPort;
   events: { publish(event: { type: string; payload: unknown }): Promise<void> };
-  decodeState(state: string): { platform: string; externalAccountId: string };
+  decodeState(state: string): Promise<{ platform: string; externalAccountId: string }>;
   newId: () => string;
 }
 
@@ -17,7 +17,7 @@ export class CompleteAdConnectionService {
   constructor(private readonly deps: Deps) {}
 
   async complete(input: { state: string; code: string; redirectUri: string }): Promise<{ connectionId: string }> {
-    const { platform, externalAccountId } = this.deps.decodeState(input.state);
+    const { platform, externalAccountId } = await this.deps.decodeState(input.state);
     const oauth = this.deps.oauthFor(platform);
     const cap = oauth.capability();
     const grant = await oauth.exchangeCode({ code: input.code, redirectUri: input.redirectUri });

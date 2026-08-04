@@ -5,11 +5,23 @@ import { OutboxEventPublisher } from '../modules/platform/infra/outbox-event-pub
 import { makePlatform } from './make-platform';
 import { getConfig } from '../lib/config/get-config';
 import { getCurrentTenantId } from '../lib/tenant/context';
+import { issueOAuthState, consumeOAuthState } from '../lib/auth/oauth-state';
+import { getPrincipal } from '../modules/identity/application/principal-resolution';
 import type { AdsDeps } from './make-acquisition-ads';
 
 type Locals = APIContext['locals'];
 
 export type { AdsDeps } from './make-acquisition-ads';
+
+// OAuth state is bound to the principal that STARTED the flow, so both ends need an interactive
+// user. Without this binding a victim's browser could complete an attacker-initiated callback.
+function requireOwner(): { tenantId: string; userId: string } {
+  const principal = getPrincipal();
+  if (!principal || principal.kind !== 'user') {
+    throw new Error('OAuth connection flows require an interactive user principal');
+  }
+  return { tenantId: getCurrentTenantId(), userId: principal.userId };
+}
 
 export async function createAdsDepsForRequest(locals?: Locals): Promise<AdsDeps> {
   const db = getTenantPrisma();
@@ -49,13 +61,9 @@ export async function createAdsDepsForRequest(locals?: Locals): Promise<AdsDeps>
       },
     },
     newId: () => crypto.randomUUID(),
-    decodeState: (state: string) => {
-      const parsed = JSON.parse(Buffer.from(state, 'base64').toString());
-      return { platform: parsed.platform, externalAccountId: parsed.adPlatformId ?? '' };
-    },
-    encodeState: (input: { platform: string }) => {
-      return Buffer.from(JSON.stringify({ platform: input.platform, csrf: crypto.randomUUID(), timestamp: Date.now() })).toString('base64');
-    },
+    decodeState: (state: string) => consumeOAuthState(state, requireOwner()),
+    encodeState: (input: { platform: string }) =>
+      issueOAuthState({ platform: input.platform, ...requireOwner() }),
     clientIdFor: async (platform: string) => {
       const key = `ads.${platform.toLowerCase()}.client_id`;
       return (await getConfig(key)) ?? '';

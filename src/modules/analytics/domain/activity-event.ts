@@ -22,6 +22,10 @@ export type KnownActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 const KIND_MAX_LENGTH = 64;
 const URL_MAX_LENGTH = 2048;
+export const ID_MAX_LENGTH = 128;
+export const METADATA_MAX_BYTES = 4096;
+export const METADATA_MAX_DEPTH = 4;
+export const METADATA_MAX_KEYS = 32;
 
 export interface RawActivityEvent {
   kind?: unknown;
@@ -72,6 +76,30 @@ function parseOccurredAt(value: unknown): Date {
   return new Date();
 }
 
+function withinDepth(value: unknown, remaining: number): boolean {
+  if (value === null || typeof value !== 'object') return true;
+  if (remaining <= 0) return false;
+  const entries = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
+  return entries.every((v) => withinDepth(v, remaining - 1));
+}
+
+// A public beacon must not let one request buy unbounded storage or serialization work, but it
+// also must not fail the whole event: metadata that busts any budget is dropped, not rejected.
+function boundedMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length > METADATA_MAX_KEYS) return null;
+  if (!withinDepth(record, METADATA_MAX_DEPTH)) return null;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(record);
+  } catch {
+    return null; // circular or otherwise non-serializable
+  }
+  if (serialized.length > METADATA_MAX_BYTES) return null;
+  return record;
+}
+
 // kind is an OPEN set: unknown kinds are allowed, ACTIVITY_KINDS is only the known catalog.
 export function normalizeActivityEvent(raw: RawActivityEvent): ActivityEvent {
   const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
@@ -80,22 +108,18 @@ export function normalizeActivityEvent(raw: RawActivityEvent): ActivityEvent {
 
   const visitorId = typeof raw.visitorId === 'string' ? raw.visitorId.trim() : '';
   if (!visitorId) throw new InvalidActivityEventError('visitorId is required');
-
-  const metadata =
-    raw.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)
-      ? (raw.metadata as Record<string, unknown>)
-      : null;
+  if (visitorId.length > ID_MAX_LENGTH) throw new InvalidActivityEventError('visitorId too long');
 
   return {
     kind,
     visitorId,
-    sessionId: optionalString(raw.sessionId),
-    funnelId: optionalString(raw.funnelId),
-    pageId: optionalString(raw.pageId),
-    stepId: optionalString(raw.stepId),
+    sessionId: optionalString(raw.sessionId, ID_MAX_LENGTH),
+    funnelId: optionalString(raw.funnelId, ID_MAX_LENGTH),
+    pageId: optionalString(raw.pageId, ID_MAX_LENGTH),
+    stepId: optionalString(raw.stepId, ID_MAX_LENGTH),
     url: optionalString(raw.url, URL_MAX_LENGTH),
     referrer: optionalString(raw.referrer, URL_MAX_LENGTH),
-    metadata,
+    metadata: boundedMetadata(raw.metadata),
     occurredAt: parseOccurredAt(raw.occurredAt),
   };
 }

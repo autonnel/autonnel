@@ -47,9 +47,12 @@ export class DispatchPostbackService {
     const platform = canonicalAdPlatform(connection.platform);
     const identifiers = (ctx?.clickIdentifiers ?? []).filter((ci) => ci.platform === platform);
     const hashedIdentity = ctx?.hashedIdentity ?? HashedIdentity.fromContactHandle({});
+    // The gate's decision is authoritative and was frozen at record time. Absence means a row
+    // written before it was persisted: fall back to non-PII, never to SEND_FULL.
+    const decision = ctx?.consentDecision ?? 'SEND_NON_PII';
 
     const payload = this.assembler.assemble({
-      decision: 'SEND_FULL',
+      decision,
       identifiers,
       hashedIdentity,
     });

@@ -10,6 +10,13 @@ vi.mock('@/lib/runtime/env', () => ({
 vi.mock('@/lib/tenant/context', () => ({
   runWithTenant: (_t: unknown, fn: () => unknown) => fn(),
 }));
+// safeFetch dispatches through the address-pinned Node client, not globalThis.fetch. These specs
+// assert on a stubbed global fetch, so route the pinned dispatcher back to it. Pinning itself is
+// covered by src/lib/utils/__tests__/pinned-fetch.test.ts.
+vi.mock('@/lib/utils/pinned-fetch', () => ({
+  getPinnedFetch: async () => (url: string, init: Record<string, unknown>) =>
+    fetch(url, { ...init, redirect: 'manual' } as RequestInit),
+}));
 
 import {
   dispatchEmail,

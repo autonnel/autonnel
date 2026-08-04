@@ -49,8 +49,13 @@ function toData(coupon: Coupon) {
   };
 }
 
+type RawCapableClient = Client & {
+  $queryRawUnsafe(sql: string, ...params: unknown[]): Promise<unknown>;
+};
+
 export class PrismaCouponRepository implements CouponRepository {
-  constructor(private readonly db: Client) {}
+  // tenantId is explicit because raw SQL bypasses the Prisma tenant injector.
+  constructor(private readonly db: RawCapableClient, private readonly tenantId: () => string) {}
 
   async list(): Promise<Coupon[]> {
     const rows = await this.db.coupon.findMany({ orderBy: { createdAt: 'desc' } });
@@ -81,8 +86,18 @@ export class PrismaCouponRepository implements CouponRepository {
     await this.db.coupon.delete({ where: { id } });
   }
 
-  // Atomic so concurrent redemptions never lose a count; tenant scope is injected by the extension.
-  async incrementUsage(code: string): Promise<void> {
-    await this.db.coupon.updateMany({ where: { code }, data: { usageCount: { increment: 1 } } });
+  // Conditional AND atomic: the cap predicate is evaluated inside the same statement as the
+  // increment, so the persisted counter can never exceed maxUsages no matter how many requests
+  // race. Returns false when the cap was already reached.
+  async incrementUsage(code: string): Promise<boolean> {
+    const sql = `
+      UPDATE coupons
+      SET "usageCount" = "usageCount" + 1
+      WHERE "tenantId" = $1
+        AND code = $2
+        AND ("maxUsages" IS NULL OR "usageCount" < "maxUsages")
+      RETURNING id`;
+    const rows = (await this.db.$queryRawUnsafe(sql, this.tenantId(), code)) as { id: string }[];
+    return rows.length > 0;
   }
 }

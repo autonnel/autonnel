@@ -26,6 +26,9 @@ export const RATE_LIMITS = {
   LOGIN_PER_IP: { limit: 30, windowSeconds: 15 * 60 },
   ORDER_TRACKING_PER_IP: { limit: 20, windowSeconds: 10 * 60 },
   ORDER_TRACKING_PER_EMAIL: { limit: 10, windowSeconds: 10 * 60 },
+  MAINTENANCE_UNLOCK_PER_IP: { limit: 5, windowSeconds: 15 * 60 },
+  // Global bucket bounds total bcrypt work even when the source cannot be attributed.
+  MAINTENANCE_UNLOCK_GLOBAL: { limit: 60, windowSeconds: 15 * 60 },
 } as const;
 
 export type RateLimitRule = { limit: number; windowSeconds: number };

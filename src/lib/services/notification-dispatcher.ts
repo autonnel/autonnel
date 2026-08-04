@@ -42,13 +42,21 @@ async function recordLog(args: {
   });
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+// body is a string, not BodyInit: safeFetch pins the connection through a Node client that can
+// only forward a string/bytes body. Both call sites already send a JSON string.
+interface WebhookRequestInit {
+  method?: string;
+  headers?: HeadersInit;
+  body?: string;
+}
+
+async function fetchWithTimeout(url: string, init: WebhookRequestInit): Promise<Response> {
   return safeFetch(url, {
     timeoutMs: HTTP_TIMEOUT_MS,
     maxBytes: MAX_LOG_CONTENT_LENGTH,
     method: init.method,
     headers: init.headers,
-    body: init.body as BodyInit | undefined,
+    body: init.body,
   });
 }
 

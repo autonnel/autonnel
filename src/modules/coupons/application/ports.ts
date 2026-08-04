@@ -7,5 +7,6 @@ export interface CouponRepository {
   create(coupon: Coupon): Promise<Coupon>;
   update(coupon: Coupon): Promise<Coupon>;
   delete(id: string): Promise<void>;
-  incrementUsage(code: string): Promise<void>;
+  /** Advances usageCount only while below maxUsages. Returns false when the cap is reached. */
+  incrementUsage(code: string): Promise<boolean>;
 }

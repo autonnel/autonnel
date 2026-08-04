@@ -16,6 +16,10 @@ const logger = createLogger("OrderFulfillment:SyncFulfillmentStatus");
 const PAGE_SIZE = 100;
 const MAX_PER_SWEEP = 500;
 const CONCURRENCY = 6;
+// An order the backend never resolves (deleted upstream, or carrying a ref from a previous
+// commerce provider) stays PAID forever and is re-polled on every tick, burning one upstream API
+// call each time. Polling stops after this age: nothing that has not advanced in a month will.
+export const MAX_SYNC_AGE_DAYS = 30;
 
 function emptyTracking(): TrackingInfo {
   return TrackingInfo.of({});
@@ -34,9 +38,10 @@ export class SyncFulfillmentStatusService implements FulfillmentCronPort {
     let cursor: OrderCursor | undefined;
     let scanned = 0;
     let advanced = 0;
+    const createdAfter = new Date(Date.now() - MAX_SYNC_AGE_DAYS * 24 * 60 * 60 * 1000);
 
     while (scanned < MAX_PER_SWEEP) {
-      const page = await this.repo.findPaidWithBackendRef(PAGE_SIZE, cursor);
+      const page = await this.repo.findPaidWithBackendRef(PAGE_SIZE, cursor, createdAfter);
       if (page.orders.length === 0) break;
       scanned += page.orders.length;
 

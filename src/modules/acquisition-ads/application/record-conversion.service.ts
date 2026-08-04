@@ -66,7 +66,9 @@ export class RecordConversionService {
         destinationId: c.destinationId,
         event: c.event,
         retryPolicy: RetryPolicy.default(),
-        dispatchContext: { clickIdentifiers, hashedIdentity },
+        // Persist the gate's decision: dispatch happens later, in another process, and must not
+        // be free to assume full consent.
+        dispatchContext: { clickIdentifiers, hashedIdentity, consentDecision: decision },
       });
 
       if (decision === 'SUPPRESS') {

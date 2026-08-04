@@ -66,11 +66,16 @@ export class RegistrationFlowService {
     return role.id;
   }
 
+  // Roles come from the invitation the token identifies, never from an e-mail match: multiple
+  // pending invitations per address are allowed, so matching by e-mail could hand a low-privilege
+  // token the roles of a different, higher-privilege invitation.
   private async acceptInvitation(email: string, token: string): Promise<string[]> {
-    const list = await this.invitations.list();
-    await this.invitations.accept({ plaintextToken: token, acceptingUserId: '', acceptingEmail: email });
-    const matched = list.find((i) => i.email.toLowerCase() === email.toLowerCase() && i.status === 'pending');
-    return matched ? matched.invitedRoleIds : [];
+    const { invitedRoleIds } = await this.invitations.accept({
+      plaintextToken: token,
+      acceptingUserId: '',
+      acceptingEmail: email,
+    });
+    return invitedRoleIds;
   }
 
   private async ensureMembership(userId: string, roleIds: string[]): Promise<void> {

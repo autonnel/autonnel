@@ -51,7 +51,23 @@ export async function POST(context: APIContext): Promise<Response> {
     });
   }
 
-  const surface = makeStorefrontCheckout(storefrontCheckoutDepsFromLocals(context.locals));
+  // Dependency assembly runs outside handleCheckoutRequest's try/catch. Letting it throw
+  // returns an empty 500, which the shopper-side orchestrator can only render as its generic
+  // fallback copy — a total checkout outage that looks like ordinary shopper friction.
+  let surface: ReturnType<typeof makeStorefrontCheckout>;
+  try {
+    surface = makeStorefrontCheckout(storefrontCheckoutDepsFromLocals(context.locals));
+  } catch (err) {
+    logger.error('Checkout dependencies unavailable', { action, error: err });
+    return new Response(
+      JSON.stringify({
+        error: 'checkout_unavailable',
+        message: 'Checkout is temporarily unavailable. Please try again shortly.',
+      }),
+      { status: 503, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
   const result = await handleCheckoutRequest(action, body, cookie, surface);
 
   if (action === 'submit' && result.status === 200) {

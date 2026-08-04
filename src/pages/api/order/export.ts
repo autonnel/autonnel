@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import { requireFeature, ForbiddenError } from "@/modules/identity/application/principal-resolution";
 import { toFeatureKey } from "@/modules/identity/domain/feature-key";
 import { makeOrderDashboardQuery } from "@/composition/order-fulfillment-deps";
+import { csvCell } from "@/lib/utils/csv";
 import type {
   OrderListFilters,
   OrderStatusKey,
@@ -18,10 +19,6 @@ const STATUSES: OrderStatusKey[] = [
 ];
 const BOM = "﻿";
 const HEADERS = ["Created At", "Order #", "Status", "Customer", "Amount", "Currency", "Tracking #"];
-
-function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
 
 export const GET: APIRoute = async ({ url, locals }) => {
   try {

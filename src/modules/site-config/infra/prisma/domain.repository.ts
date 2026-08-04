@@ -10,8 +10,18 @@ function toDomain(row: Row): Domain {
   return Domain.rehydrate({ id: row.id, tenantId: row.tenantId, host: row.host, isPrimary: row.isPrimary });
 }
 
+interface UnscopedDomainDelegate {
+  findFirst(args: { where: { host: string }; select: { tenantId: true } }): Promise<{ tenantId: string } | null>;
+}
+
 export class PrismaDomainRepository implements DomainRepository {
-  constructor(private readonly db: Client) {}
+  // `db` is tenant-extended (tenantId auto-injected); `baseDb` deliberately is NOT, because a
+  // global host-uniqueness check must be able to see other tenants' rows.
+  constructor(private readonly db: Client, private readonly baseDb: UnscopedDomainDelegate) {}
+
+  async findByHostAcrossTenants(host: string): Promise<{ tenantId: string } | null> {
+    return this.baseDb.findFirst({ where: { host }, select: { tenantId: true } });
+  }
 
   async list(): Promise<Domain[]> {
     const rows = await this.db.domain.findMany({ orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }] });

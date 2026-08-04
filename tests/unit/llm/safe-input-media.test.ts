@@ -2,6 +2,15 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { UnsafeUrlError } from '@/lib/utils/safe-url';
 import { fetchInputImageBytes } from '@/lib/llm/safe-input-media';
 
+// safeFetch dispatches through the address-pinned Node client, not globalThis.fetch. These specs
+// assert on a stubbed global fetch, so route the pinned dispatcher back to it. Pinning itself is
+// covered by src/lib/utils/__tests__/pinned-fetch.test.ts.
+vi.mock('@/lib/utils/pinned-fetch', () => ({
+  getPinnedFetch: async () => (url: string, init: Record<string, unknown>) =>
+    fetch(url, { ...init, redirect: 'manual' } as RequestInit),
+}));
+
+
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {

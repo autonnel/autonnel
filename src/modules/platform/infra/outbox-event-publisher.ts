@@ -37,6 +37,7 @@ interface OutboxRow {
   payload: unknown;
   correlation: EventCorrelation;
   attemptCount: number;
+  claimedAt?: Date | null;
 }
 
 export class OutboxDrainService {
@@ -46,21 +47,38 @@ export class OutboxDrainService {
     private readonly batchSize = 100,
     private readonly clock: () => Date = () => new Date(),
     private readonly maxAttempts = MAX_OUTBOX_ATTEMPTS,
+    private readonly claimLeaseMs = 120_000,
   ) {}
 
+  // The per-checkout inline drain and the scheduled drain run concurrently, so selection alone is
+  // not ownership: each row must be claimed with a conditional update before any handler or
+  // notification fan-out runs, or Slack/webhook destinations get contacted twice. The claim is
+  // leased so an isolate that dies mid-delivery does not strand the row forever.
   async drain(): Promise<number> {
     const now = this.clock();
+    const leaseCutoff = new Date(now.getTime() - this.claimLeaseMs);
     const rows: OutboxRow[] = await this.db.jobOutbox.findMany({
       where: {
         publishedAt: null,
         deadLetteredAt: null,
         OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
+        AND: [{ OR: [{ claimedAt: null }, { claimedAt: { lt: leaseCutoff } }] }],
       },
       orderBy: { createdAt: "asc" },
       take: this.batchSize,
     });
     let delivered = 0;
     for (const r of rows) {
+      const claim = await this.db.jobOutbox.updateMany({
+        where: {
+          eventId: r.eventId,
+          publishedAt: null,
+          OR: [{ claimedAt: null }, { claimedAt: { lt: leaseCutoff } }],
+        },
+        data: { claimedAt: now },
+      });
+      if (claim.count !== 1) continue; // another isolate owns this row
+
       try {
         await this.deliver({
           eventId: r.eventId, type: r.type, tenantId: r.tenantId, occurredAt: r.occurredAt,
@@ -88,6 +106,8 @@ export class OutboxDrainService {
         attemptCount,
         failedAt: now,
         lastError,
+        // Release the claim so the scheduled retry can pick the row up again.
+        claimedAt: null,
         deadLetteredAt: deadLettered ? now : null,
         nextRetryAt: deadLettered ? null : new Date(now.getTime() + outboxBackoffMs(attemptCount)),
       },

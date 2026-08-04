@@ -1,7 +1,9 @@
 // claimBatch uses FOR UPDATE SKIP LOCKED + a lease so concurrent cron isolates never double-claim.
 // It also reclaims RUNNING jobs whose lease expired (a prior runner died mid-handler, e.g. a CF
 // isolate suspended after the response or a dev-server restart) so orphaned jobs drain on retry.
-// Tenant injection is bypassed for the claim (cross-tenant drain) by using a raw query;
+// Tenant injection is bypassed for the claim (cross-tenant drain) by using a raw query; the claim
+// therefore RETURNS each row's tenantId so the caller can execute the job inside that tenant —
+// loading it under the wrong tenant silently resolves to null after the attempt was consumed.
 // insert/load go through the tenant-scoped client.
 import { Job, type JobSnapshot } from "../../domain/job";
 import type { JobRow, JobRepositoryPort } from "../../application/ports";
@@ -52,7 +54,7 @@ export class PrismaJobRepository implements JobRepositoryPort, JobStorePort {
     });
   }
 
-  async claimBatch(now: Date, limit: number, leaseMs: number): Promise<string[]> {
+  async claimBatch(now: Date, limit: number, leaseMs: number): Promise<{ id: string; tenantId: string }[]> {
     const sql = `
       WITH claimed AS (
         SELECT id FROM jobs
@@ -70,9 +72,12 @@ export class PrismaJobRepository implements JobRepositoryPort, JobStorePort {
         "attemptCount" = "attemptCount" + 1,
         "leaseExpiry" = $3
       WHERE id IN (SELECT id FROM claimed)
-      RETURNING id`;
-    const rows = (await this.db.$queryRawUnsafe(sql, now, limit, new Date(now.getTime() + leaseMs))) as { id: string }[];
-    return rows.map((r) => r.id);
+      RETURNING id, "tenantId"`;
+    const rows = (await this.db.$queryRawUnsafe(sql, now, limit, new Date(now.getTime() + leaseMs))) as {
+      id: string;
+      tenantId: string;
+    }[];
+    return rows.map((r) => ({ id: r.id, tenantId: r.tenantId }));
   }
 
   async load(jobId: string): Promise<Job | null> {

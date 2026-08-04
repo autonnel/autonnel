@@ -31,6 +31,10 @@ export class PermissionSet {
     return new PermissionSet([...this.keys, ...other.keys]);
   }
 
+  intersect(other: PermissionSet): PermissionSet {
+    return new PermissionSet([...this.keys].filter((k) => other.has(k)));
+  }
+
   toArray(): FeatureKey[] {
     return [...this.keys];
   }

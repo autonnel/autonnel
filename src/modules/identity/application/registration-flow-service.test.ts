@@ -55,7 +55,7 @@ function flowDeps() {
       list: vi.fn().mockResolvedValue([
         { id: 'i1', email: 'a@b.com', status: 'pending', invitedRoleIds: ['r1'] },
       ]),
-      accept: vi.fn(),
+      accept: vi.fn().mockResolvedValue({ invitedRoleIds: ['r1'] }),
     },
     memberships: {
       listByTenant: vi.fn().mockResolvedValue([{ id: 'm0' }]),
@@ -124,5 +124,39 @@ describe('RegistrationFlowService.register (invitation path)', () => {
     expect(d.memberships.save).toHaveBeenCalledTimes(1);
     expect(d.memberships.save.mock.calls[0][0].roleIds).toEqual(['r1']);
     expect(result).toEqual({ sessionToken: 'session-token' });
+  });
+});
+
+describe('RegistrationFlowService.register — roles come from the accepted token', () => {
+  // Multiple pending invitations per address are allowed, so selecting by e-mail can pick a
+  // different, higher-privilege row than the token that was actually redeemed.
+  function twoPending(acceptRoles: string[]) {
+    const d = flowDeps();
+    d.registration.precheckCredentials.mockResolvedValue('u1');
+    d.invitations.list.mockResolvedValue([
+      { id: 'inv-admin', email: 'a@b.com', status: 'pending', invitedRoleIds: ['role-admin'] },
+      { id: 'inv-viewer', email: 'a@b.com', status: 'pending', invitedRoleIds: ['role-viewer'] },
+    ]);
+    d.invitations.accept.mockResolvedValue({ invitedRoleIds: acceptRoles });
+    return d;
+  }
+
+  it('grants the redeemed token roles, not another pending invitation roles', async () => {
+    const d = twoPending(['role-viewer']);
+    await flowSvc(d).register({ email: 'a@b.com', password: 'longenough', invitationToken: 'tok-viewer' });
+    expect(d.memberships.save.mock.calls[0][0].roleIds).toEqual(['role-viewer']);
+    expect(d.memberships.save.mock.calls[0][0].roleIds).not.toContain('role-admin');
+  });
+
+  it('grants no roles when the accepted invitation carries none', async () => {
+    const d = twoPending([]);
+    await flowSvc(d).register({ email: 'a@b.com', password: 'longenough', invitationToken: 'tok-none' });
+    expect(d.memberships.save.mock.calls[0][0].roleIds).toEqual([]);
+  });
+
+  it('never re-derives roles by listing invitations', async () => {
+    const d = twoPending(['role-viewer']);
+    await flowSvc(d).register({ email: 'a@b.com', password: 'longenough', invitationToken: 'tok-viewer' });
+    expect(d.invitations.list).not.toHaveBeenCalled();
   });
 });

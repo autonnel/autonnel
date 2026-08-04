@@ -4,6 +4,7 @@ import { runCheckoutDrain } from '@/composition/run-checkout-drain';
 import { getCurrentTenantId } from '@/lib/tenant/context';
 import { getBasePrisma } from '@/lib/db';
 import { funnelNextStepIsUpsell } from '@/lib/funnel-next-step';
+import { ownsSale, SALE_OWNERSHIP_DENIED } from '@/lib/storefront/sale-ownership';
 import type { ShopStripePaymentInput, ShopStripePaymentDto } from '@/contracts/shop';
 import { createLogger } from '@/lib/logger';
 
@@ -38,6 +39,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const { action, orderId, paymentMethodId, paymentIntentId, funnelId, pageId } = body;
 
   if (!orderId) return json({ success: false, error: 'orderId is required' });
+
+  // orderId is the saleRef, which the post-checkout redirect places in the browser URL — it
+  // identifies but never authorizes. Without this gate, anyone holding the URL could drive
+  // another shopper's PaymentIntent and receive its 3DS client secret.
+  if (!(await ownsSale(request, locals, orderId))) {
+    logger.warn('Stripe payment action rejected: checkout session does not own the sale', { orderId, action });
+    return json({ success: false, error: SALE_OWNERSHIP_DENIED, orderId }, 403);
+  }
 
   try {
     const service = makeConfirmCardPayment();

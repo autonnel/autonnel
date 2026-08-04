@@ -17,11 +17,19 @@ export class ManageDomainsService {
     const set = new DomainSet(existing);
     const shouldBePrimary = set.resolveNewPrimary(candidate.isPrimary);
 
-    if (await this.repo.findByHost(candidate.host)) {
+    // Global check, not tenant-scoped: two tenants claiming one host makes host->tenant routing
+    // ambiguous. The DB unique index is the real guard; this only produces a clean error first.
+    if (await this.repo.findByHostAcrossTenants(candidate.host)) {
       throw new DomainConflictError(candidate.host);
     }
     candidate.isPrimary = false;
-    const created = await this.repo.create(candidate);
+    let created: Domain;
+    try {
+      created = await this.repo.create(candidate);
+    } catch (err) {
+      if ((err as { code?: string }).code === 'P2002') throw new DomainConflictError(candidate.host);
+      throw err;
+    }
     if (shouldBePrimary) return this.repo.setPrimary(created.id);
     return created;
   }

@@ -36,12 +36,20 @@ describe('ManageCouponsService.redeem', () => {
     expect(incrementUsage).toHaveBeenCalledWith('ONCE');
   });
 
-  it('no-ops on an invalid code rather than throwing', async () => {
+  it('reports false on an invalid code rather than throwing', async () => {
     const incrementUsage = vi.fn();
     const svc = new ManageCouponsService(makeRepo({ incrementUsage }), () => 't1');
 
-    await expect(svc.redeem('bad code!')).resolves.toBeUndefined();
+    await expect(svc.redeem('bad code!')).resolves.toBe(false);
     expect(incrementUsage).not.toHaveBeenCalled();
+  });
+
+  it('propagates the repository refusal when the cap is already reached', async () => {
+    const incrementUsage = vi.fn().mockResolvedValue(false);
+    const svc = new ManageCouponsService(makeRepo({ incrementUsage }), () => 't1');
+
+    await expect(svc.redeem('ONCE')).resolves.toBe(false);
+    expect(incrementUsage).toHaveBeenCalledWith('ONCE');
   });
 });
 

@@ -51,6 +51,7 @@ model JobOutbox {
   correlation    Json
   occurredAt     DateTime
   publishedAt    DateTime?
+  claimedAt      DateTime?
   attemptCount   Int       @default(0)
   failedAt       DateTime?
   nextRetryAt    DateTime?
@@ -58,7 +59,7 @@ model JobOutbox {
   deadLetteredAt DateTime?
   createdAt      DateTime  @default(now())
 
-  @@index([publishedAt, createdAt])
+  @@index([publishedAt, claimedAt, createdAt])
   @@map("job_outbox")
 }
 
@@ -799,7 +800,9 @@ model Domain {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([tenantId, host])
+  // Uniqueness is GLOBAL, not per tenant: host->tenant routing must resolve to exactly one tenant,
+  // otherwise a second tenant can claim a bound hostname and misroute storefront traffic.
+  @@unique([host])
   @@index([tenantId])
   @@map("domains")
 }

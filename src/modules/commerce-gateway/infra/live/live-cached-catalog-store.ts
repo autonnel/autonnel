@@ -4,6 +4,8 @@ import type {
   CatalogProjectionListResult,
 } from "../../application/ports/outbound";
 import { CatalogProductView } from "../../domain/catalog-projection";
+import { getCache } from "../../../../lib/adapters/cache";
+import { encodeProduct, decodeProduct, type SerializedProduct } from "./catalog-view-codec";
 import { SyncCursor } from "../../domain/value-objects/sync-cursor";
 import { ExternalRef } from "../../domain/value-objects/external-ref";
 
@@ -15,7 +17,7 @@ export interface LiveCatalogCacheConfig {
   maxProducts: number;
 }
 
-const DEFAULT_CONFIG: LiveCatalogCacheConfig = { ttlMs: 60_000, pageSize: 100, maxProducts: 250 };
+const DEFAULT_CONFIG: LiveCatalogCacheConfig = { ttlMs: 300_000, pageSize: 100, maxProducts: 250 };
 
 interface CacheEntry {
   products: CatalogProductView[];
@@ -23,13 +25,29 @@ interface CacheEntry {
   expiry: number;
 }
 
-// Per-isolate cache shared across requests. Reading live keeps the admin picker and the money path
-// off the stale projection table while a short TTL bounds upstream API load under traffic spikes
-// (each isolate hits the backend at most once per ttl per cache key).
+interface SharedCacheEntry {
+  products: SerializedProduct[];
+  truncated: boolean;
+}
+
+const SHARED_PREFIX = 'catalog:live:';
+
+// Two tiers. The in-process Map is a per-isolate hot path; the SHARED cache (Cloudflare KV in
+// production) is what actually bounds upstream load, because on workerd isolates are short-lived
+// and numerous so an in-process cache is almost always cold — every request used to pay a full
+// catalog fetch. Reading live still keeps the admin picker and the money path off the stale
+// projection table.
 const _cache = new Map<string, CacheEntry>();
 
-export function clearLiveCatalogCache(): void {
+// Clears BOTH tiers. Clearing only the in-process map would leave the shared entry serving stale
+// data to the next reader (and, in tests, leak state between cases).
+export async function clearLiveCatalogCache(): Promise<void> {
   _cache.clear();
+  try {
+    await getCache().deletePattern(`${SHARED_PREFIX}*`);
+  } catch {
+    // best effort: the TTL still bounds staleness
+  }
 }
 
 // Reads the catalog directly from the live commerce backend (Shopify/Woo/Picocart adapters) and
@@ -47,10 +65,24 @@ export class LiveCachedCatalogStore implements CatalogProjectionStorePort {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  private memoize(products: CatalogProductView[], truncated: boolean): CatalogProductView[] {
+    _cache.set(this.cacheKey, { products, truncated, expiry: Date.now() + this.config.ttlMs });
+    return products;
+  }
+
   private async all(): Promise<CatalogProductView[]> {
     const hit = _cache.get(this.cacheKey);
     const now = Date.now();
     if (hit && now < hit.expiry) return hit.products;
+
+    // Shared tier: on workerd this is the only cache that survives between isolates.
+    const sharedKey = SHARED_PREFIX + this.cacheKey;
+    try {
+      const shared = await getCache().get<SharedCacheEntry>(sharedKey);
+      if (shared) return this.memoize(shared.products.map(decodeProduct), shared.truncated);
+    } catch {
+      // A cache outage must never take the catalog down; fall through to the backend.
+    }
 
     const products: CatalogProductView[] = [];
     let truncated = false;
@@ -65,8 +97,16 @@ export class LiveCachedCatalogStore implements CatalogProjectionStorePort {
       cursor = page.nextCursor;
     }
     const capped = products.slice(0, this.config.maxProducts);
-    _cache.set(this.cacheKey, { products: capped, truncated, expiry: now + this.config.ttlMs });
-    return capped;
+    try {
+      await getCache().set<SharedCacheEntry>(
+        SHARED_PREFIX + this.cacheKey,
+        { products: capped.map(encodeProduct), truncated },
+        Math.ceil(this.config.ttlMs / 1000),
+      );
+    } catch {
+      // Best effort: failing to publish to the shared cache only costs the next isolate a refetch.
+    }
+    return this.memoize(capped, truncated);
   }
 
   private async live(): Promise<CatalogProductView[]> {

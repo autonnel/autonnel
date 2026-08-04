@@ -32,6 +32,21 @@ describe('handleCheckoutRequest', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects a malformed cart body with 400 before touching the domain', async () => {
+    const surface = fakeSurface();
+    const res = await handleCheckoutRequest('cart', {}, 'sess_1.sig', surface);
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'invalid_request', message: 'Please choose a product before continuing.' });
+    expect(surface.addToCart.execute).not.toHaveBeenCalled();
+  });
+
+  it('still forwards a well-formed cart body to the domain', async () => {
+    const surface = fakeSurface();
+    const res = await handleCheckoutRequest('cart', { variantExternalId: 'gid://v/1', quantity: 2 }, 'sess_1.sig', surface);
+    expect(res.status).toBe(200);
+    expect(surface.addToCart.execute).toHaveBeenCalledWith('sess_1', { variantExternalId: 'gid://v/1', quantity: 2 });
+  });
+
   it('maps a thrown domain error to a safe 422 without leaking internals', async () => {
     const surface = fakeSurface();
     surface.applyCoupon.execute = vi.fn(async () => { throw new Error('Subtotal below coupon minimum'); });

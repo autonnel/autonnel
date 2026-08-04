@@ -10,6 +10,12 @@ interface WindowState {
 
 // Some cache adapters (Redis) expose an atomic increment; using it avoids the
 // read-modify-write race that lets attackers slip extra hits past the limit.
+//
+// KNOWN GAP (deliberate — see docs/superpowers/plans/2026-07-31-security-remediation.md Task 20):
+// the fallback below is a non-atomic read-modify-write, so on an adapter WITHOUT incrWithTtl
+// (Cloudflare KV) a concurrent burst can all observe the same count and overwrite each other,
+// exceeding the cap. Closing this needs an atomic counter store (a DB row or a Durable Object);
+// that was explicitly descoped. Every limit here is therefore best-effort under concurrency.
 interface AtomicCounter {
   incrWithTtl(key: string, ttlSeconds: number): Promise<number>;
 }

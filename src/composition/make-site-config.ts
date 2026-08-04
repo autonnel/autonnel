@@ -1,4 +1,5 @@
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { getBasePrisma } from '@/lib/db';
 import { getCurrentTenantId } from '@/lib/tenant/context';
 import { invalidateGlobalScriptsCache } from '@/lib/adapters/cache';
 import { PrismaDomainRepository } from '@/modules/site-config/infra/prisma/domain.repository';
@@ -9,7 +10,10 @@ import { ManageScriptsService } from '@/modules/site-config/application/manage-s
 export function makeSiteConfig() {
   const db = getTenantPrisma();
   return {
-    domains: new ManageDomainsService(new PrismaDomainRepository(db), getCurrentTenantId),
+    domains: new ManageDomainsService(
+      new PrismaDomainRepository(db, getBasePrisma().domain as never),
+      getCurrentTenantId,
+    ),
     scripts: new ManageScriptsService(new PrismaGlobalScriptRepository(db), getCurrentTenantId, invalidateGlobalScriptsCache),
   };
 }

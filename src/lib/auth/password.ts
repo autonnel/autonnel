@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
+import { MAINTENANCE_PASSWORD_MIN } from './password-policy';
 
 const COST_FACTOR = 10;
-const MAINTENANCE_PASSWORD_MIN = 4;
 
 export async function hashPassword(plain: string): Promise<string> {
   if (!plain || plain.length < 8) {

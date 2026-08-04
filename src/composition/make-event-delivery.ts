@@ -199,7 +199,15 @@ async function deliverOrderCreation(envelope: DomainEventEnvelope, locals?: unkn
   // Advance coupon usageCount exactly once per order. Gated on `created` so event redelivery
   // (which finds the existing Order) never double-counts.
   if (created && snapshot.couponCode) {
-    await makeCoupons().redeem(snapshot.couponCode);
+    const advanced = await makeCoupons().redeem(snapshot.couponCode);
+    if (!advanced) {
+      // The discount was already granted at submit time, so the order stands. Surfacing this
+      // makes the residual submit->capture race observable instead of silent.
+      logger.warn('Coupon redeemed past its usage cap; order stands, cap not advanced', {
+        saleRef,
+        couponCode: snapshot.couponCode,
+      });
+    }
   }
 
   // Verify the charged prices against the live catalog exactly once. Gated on `created` so

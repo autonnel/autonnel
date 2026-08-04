@@ -26,9 +26,12 @@ describe("foundation queue + handler wiring", () => {
       },
       // Mirror the real adapter: claim atomically transitions PENDING -> RUNNING (runClaimed no-ops otherwise).
       claimBatch: async (now: Date, _batchSize: number, leaseMs: number) => {
-        const claimed: string[] = [];
+        const claimed: { id: string; tenantId: string }[] = [];
         for (const [id, job] of stored) {
-          if (job.isClaimable(now)) { job.claim(now, leaseMs); claimed.push(id); }
+          if (job.isClaimable(now)) {
+            job.claim(now, leaseMs);
+            claimed.push({ id, tenantId: job.snapshot().tenantId });
+          }
         }
         return claimed;
       },
@@ -37,7 +40,7 @@ describe("foundation queue + handler wiring", () => {
 
     const runJob = new RunJobService(store, registry, { baseMs: 1, factor: 2, maxMs: 10 });
     const enqueue = new EnqueueJobService(repo, registry, { run: vi.fn() } as any, { current: () => "default" } as any, runJob);
-    const poll = new PollPendingJobsService(repo, runJob, { batchSize: 10, leaseMs: 1000 });
+    const poll = new PollPendingJobsService(repo, runJob, { batchSize: 10, leaseMs: 1000 }, async (_t, fn) => fn());
 
     await enqueue.enqueue({ kind: "demo.kind", payload: { hi: 1 }, dispatch: "CRON_POLL" });
     const count = await poll.poll();

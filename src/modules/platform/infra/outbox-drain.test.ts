@@ -16,6 +16,7 @@ interface Row {
   lastError: string | null;
   deadLetteredAt: Date | null;
   createdAt: Date;
+  claimedAt: Date | null;
 }
 
 function makeRow(eventId: string, createdAt: Date): Row {
@@ -23,6 +24,7 @@ function makeRow(eventId: string, createdAt: Date): Row {
     eventId, type: "payment.captured", tenantId: "t1", occurredAt: createdAt,
     payload: { saleRef: "s1" }, correlation: { saleRef: "s1" }, attemptCount: 0,
     publishedAt: null, failedAt: null, nextRetryAt: null, lastError: null, deadLetteredAt: null, createdAt,
+    claimedAt: null,
   };
 }
 
@@ -32,11 +34,24 @@ function makeFakeDb(rows: Row[], clock: () => Date) {
     jobOutbox: {
       findMany: vi.fn(async ({ take }: { take: number }) => {
         const now = clock();
+        const leaseCutoff = new Date(now.getTime() - 120_000);
         return rows
           .filter((r) => r.publishedAt === null && r.deadLetteredAt === null && (r.nextRetryAt === null || r.nextRetryAt <= now))
+          .filter((r) => r.claimedAt === null || r.claimedAt < leaseCutoff)
           .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
           .slice(0, take)
           .map((r) => ({ ...r }));
+      }),
+      // Mirrors the conditional claim: only the first caller for a row wins.
+      updateMany: vi.fn(async ({ where, data }: { where: { eventId: string }; data: Partial<Row> }) => {
+        const now = clock();
+        const leaseCutoff = new Date(now.getTime() - 120_000);
+        const r = rows.find((x) => x.eventId === where.eventId);
+        if (!r) return { count: 0 };
+        if (r.publishedAt !== null) return { count: 0 };
+        if (r.claimedAt !== null && r.claimedAt >= leaseCutoff) return { count: 0 };
+        Object.assign(r, data);
+        return { count: 1 };
       }),
       update: vi.fn(async ({ where, data }: { where: { eventId: string }; data: Partial<Row> }) => {
         const r = rows.find((x) => x.eventId === where.eventId)!;
@@ -159,5 +174,56 @@ describe("OutboxDrainService at-least-once", () => {
     expect(rows[0].nextRetryAt).toBeNull();
     expect(rows[0].attemptCount).toBe(3);
     expect(deliver).toHaveBeenCalledTimes(3); // not retried once dead-lettered
+  });
+});
+
+describe("OutboxDrainService — atomic claim prevents double delivery", () => {
+  it("delivers a row exactly once across two overlapping drains", async () => {
+    const rows = [makeRow("e1", new Date("2026-01-01T00:00:00Z"))];
+    const clock = () => new Date("2026-01-01T00:00:10Z");
+    const db = makeFakeDb(rows, clock);
+    const delivered: string[] = [];
+    const deliver = async (e: DomainEventEnvelope) => {
+      delivered.push(e.eventId);
+    };
+
+    const a = new OutboxDrainService(db, deliver, 100, clock);
+    const b = new OutboxDrainService(db, deliver, 100, clock);
+    await Promise.all([a.drain(), b.drain()]);
+
+    expect(delivered).toEqual(["e1"]);
+    expect(rows[0].publishedAt).not.toBeNull();
+  });
+
+  it("a second drain after a completed one delivers nothing", async () => {
+    const rows = [makeRow("e2", new Date("2026-01-01T00:00:00Z"))];
+    const clock = () => new Date("2026-01-01T00:00:10Z");
+    const db = makeFakeDb(rows, clock);
+    const delivered: string[] = [];
+    const deliver = async (e: DomainEventEnvelope) => {
+      delivered.push(e.eventId);
+    };
+
+    await new OutboxDrainService(db, deliver, 100, clock).drain();
+    delivered.length = 0;
+    const count = await new OutboxDrainService(db, deliver, 100, clock).drain();
+
+    expect(delivered).toEqual([]);
+    expect(count).toBe(0);
+  });
+
+  it("releases the claim on failure so the retry can pick it up", async () => {
+    const rows = [makeRow("e3", new Date("2026-01-01T00:00:00Z"))];
+    const clock = () => new Date("2026-01-01T00:00:10Z");
+    const db = makeFakeDb(rows, clock);
+    const deliver = async () => {
+      throw new Error("transient");
+    };
+
+    await new OutboxDrainService(db, deliver, 100, clock).drain();
+
+    expect(rows[0].claimedAt).toBeNull();
+    expect(rows[0].publishedAt).toBeNull();
+    expect(rows[0].attemptCount).toBe(1);
   });
 });

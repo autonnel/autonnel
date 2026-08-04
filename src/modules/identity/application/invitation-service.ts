@@ -38,12 +38,16 @@ export class InvitationService {
     await this.events.publish({ type: 'InvitationRevoked', payload: { invitationId: id } });
   }
 
-  async accept(input: { plaintextToken: string; acceptingUserId: string; acceptingEmail: string }): Promise<void> {
+  // Returns the roles of the invitation the token actually identifies. The caller must not
+  // re-derive roles by e-mail: multiple pending invitations per address are allowed, so an
+  // e-mail match can select a different, higher-privilege row than the redeemed token.
+  async accept(input: { plaintextToken: string; acceptingUserId: string; acceptingEmail: string }): Promise<{ invitedRoleIds: string[] }> {
     const tokenHash = await this.secrets.hashSecret(input.plaintextToken);
     const found = await this.invitations.findByToken(tokenHash);
     if (!found) throw new Error('Invitation not found');
     found.invitation.accept(input.acceptingEmail, this.clock.now());
     await this.invitations.save(found.invitation, tokenHash);
     await this.events.publish({ type: 'InvitationAccepted', payload: { invitationId: found.invitation.id, userId: input.acceptingUserId } });
+    return { invitedRoleIds: [...found.invitation.invitedRoleIds] };
   }
 }

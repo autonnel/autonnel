@@ -1,6 +1,8 @@
 
 
 
+import { csvCell, startsWithSpreadsheetFormula } from '@/lib/utils/csv';
+
 export interface DeltaResult {
   value: string;
   direction: 'up' | 'down';
@@ -237,6 +239,10 @@ export function countAttention(items: IntegrationItem[]): number {
 export function csvEscape(value: unknown): string {
   if (value == null) return '';
   const s = String(value);
+  // A spreadsheet evaluates a cell starting with =, +, - or @ regardless of quoting, so a
+  // user-authored funnel name/description could execute on a colleague's machine. Neutralize
+  // via csvCell, which also handles the quoting.
+  if (startsWithSpreadsheetFormula(s)) return csvCell(s);
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

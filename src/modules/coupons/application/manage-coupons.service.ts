@@ -49,14 +49,16 @@ export class ManageCouponsService {
   }
 
   // Called once per paid order to advance usageCount toward maxUsages. No-op for unknown codes.
-  async redeem(code: string): Promise<void> {
+  // Returns false when the cap was already reached — the discount was granted at submit time so
+  // the order stands; the caller logs the mismatch rather than swallowing it.
+  async redeem(code: string): Promise<boolean> {
     let normalized: string;
     try {
       normalized = normalizeCode(code);
     } catch {
-      return;
+      return false;
     }
-    await this.repo.incrementUsage(normalized);
+    return this.repo.incrementUsage(normalized);
   }
 
   // Reused by the storefront coupon-validate endpoint (Shop area).

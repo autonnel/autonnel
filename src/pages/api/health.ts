@@ -1,24 +1,23 @@
 import type { APIRoute } from 'astro';
 import { getBasePrisma } from '@/lib/db';
 import { getCache } from '@/lib/adapters/cache';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('Health');
 
 type CheckStatus = 'ok' | 'error';
 
+// The public response carries STATUS ONLY. Connection exceptions routinely contain dependency
+// hostnames, ports, database names and topology, which must stay in access-controlled logs.
 interface DatabaseCheck {
   status: CheckStatus;
   latencyMs?: number;
-  error?: string;
 }
 
 interface CacheCheck {
   status: CheckStatus;
   type: string;
   latencyMs?: number;
-  error?: string;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Unknown error';
 }
 
 function elapsedMs(start: number): number {
@@ -31,8 +30,9 @@ async function checkDatabase(): Promise<[DatabaseCheck, boolean]> {
   try {
     await prisma.$queryRaw`SELECT 1`;
     return [{ status: 'ok', latencyMs: elapsedMs(t0) }, true];
-  } catch (err) {
-    return [{ status: 'error', error: errorMessage(err) }, false];
+  } catch (error) {
+    logger.error('health: database check failed', { error });
+    return [{ status: 'error' }, false];
   }
 }
 
@@ -48,11 +48,13 @@ async function checkCache(): Promise<[CacheCheck, boolean]> {
   try {
     const pong = await maybePing.call(cache);
     if (!pong) {
-      return [{ status: 'error', type: 'redis', error: 'Redis PING failed' }, false];
+      logger.error('health: cache PING returned false');
+      return [{ status: 'error', type: 'redis' }, false];
     }
     return [{ status: 'ok', type: 'redis', latencyMs: elapsedMs(t0) }, true];
-  } catch (err) {
-    return [{ status: 'error', type: 'redis', error: errorMessage(err) }, false];
+  } catch (error) {
+    logger.error('health: cache check failed', { error });
+    return [{ status: 'error', type: 'redis' }, false];
   }
 }
 

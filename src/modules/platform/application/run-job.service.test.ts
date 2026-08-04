@@ -74,9 +74,15 @@ describe("RunJobService", () => {
 
 describe("PollPendingJobsService", () => {
   it("claims a bounded batch and runs each claimed id (already RUNNING)", async () => {
-    const repo = { claimBatch: vi.fn(async () => ["a", "b"]) };
+    const repo = {
+      claimBatch: vi.fn(async () => [
+        { id: "a", tenantId: "default" },
+        { id: "b", tenantId: "default" },
+      ]),
+    };
     const runJob = { runById: vi.fn(async () => {}), runClaimed: vi.fn(async () => {}) };
-    const svc = new PollPendingJobsService(repo as any, runJob as any, { batchSize: 10, leaseMs: 30000 });
+    const passthroughTenant = async <T>(_t: string, fn: () => Promise<T>) => fn();
+    const svc = new PollPendingJobsService(repo as any, runJob as any, { batchSize: 10, leaseMs: 30000 }, passthroughTenant);
     const ran = await svc.poll();
     expect(repo.claimBatch).toHaveBeenCalledWith(expect.any(Date), 10, 30000);
     expect(runJob.runClaimed).toHaveBeenCalledTimes(2);

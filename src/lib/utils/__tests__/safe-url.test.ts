@@ -1,5 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { assertSafeUrl, safeFetch, UnsafeUrlError, ResponseTooLargeError } from '../safe-url';
+
+// safeFetch now dispatches through the address-pinned Node client, not the global fetch, so
+// these specs stub getPinnedFetch. Stubbing globalThis.fetch would silently hit the network.
+const pinnedMock = vi.hoisted(() => ({
+  impl: null as null | ((url: string, init: unknown) => Promise<Response>),
+}));
+vi.mock('../pinned-fetch', () => ({
+  getPinnedFetch: async () => pinnedMock.impl,
+}));
+
+import {
+  assertSafeUrl,
+  assertSafeTarget,
+  safeFetch,
+  UnsafeUrlError,
+  ResponseTooLargeError,
+  __setDnsLookupForTest,
+  __resetDnsProbeForTest,
+} from '../safe-url';
 
 describe('assertSafeUrl — literal IP rejection', () => {
   it.each([
@@ -61,16 +79,13 @@ describe('assertSafeUrl — malformed input', () => {
 });
 
 describe('safeFetch — redirect validation', () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    pinnedMock.impl = null;
   });
 
   it('rejects a redirect that points at a private IP', async () => {
     const calls: string[] = [];
-    globalThis.fetch = vi.fn(async (input: any) => {
-      const url = typeof input === 'string' ? input : input.url;
+    pinnedMock.impl = async (url: string) => {
       calls.push(url);
       if (url === 'https://example.com/redirect') {
         return new Response(null, {
@@ -79,7 +94,7 @@ describe('safeFetch — redirect validation', () => {
         });
       }
       return new Response('should not be reached', { status: 200 });
-    }) as any;
+    };
 
     await expect(
       safeFetch('https://example.com/redirect', { schemes: ['http:', 'https:'] }),
@@ -88,15 +103,47 @@ describe('safeFetch — redirect validation', () => {
   });
 
   it('caps response body via maxBytes (declared content-length)', async () => {
-    globalThis.fetch = vi.fn(async () => {
-      return new Response('ok', {
+    pinnedMock.impl = async () =>
+      new Response('ok', {
         status: 200,
         headers: { 'content-length': '99999999' },
       });
-    }) as any;
 
     await expect(
       safeFetch('https://example.com/big', { schemes: ['http:', 'https:'], maxBytes: 1024 }),
     ).rejects.toThrow(ResponseTooLargeError);
+  });
+
+  it('pins the connection to the address that was validated', async () => {
+    const seen: { url: string; address: string }[] = [];
+    pinnedMock.impl = async (url: string, init: unknown) => {
+      seen.push({ url, address: (init as { pinnedAddress: string }).pinnedAddress });
+      return new Response('ok', { status: 200 });
+    };
+
+    const target = await assertSafeTarget('http://93.184.216.34/', { schemes: ['http:', 'https:'] });
+    await safeFetch('http://93.184.216.34/', { schemes: ['http:', 'https:'] });
+
+    expect(target.pin).toEqual({ address: '93.184.216.34', family: 4 });
+    expect(seen).toEqual([{ url: 'http://93.184.216.34/', address: '93.184.216.34' }]);
+  });
+
+  it('fails closed when neither DNS validation nor pinning is available', async () => {
+    pinnedMock.impl = null;
+    __setDnsLookupForTest(null);
+    try {
+      await expect(
+        safeFetch('https://example.com/', { schemes: ['https:'] }),
+      ).rejects.toThrow(UnsafeUrlError);
+    } finally {
+      __resetDnsProbeForTest();
+    }
+  });
+});
+
+describe('assertSafeTarget — pin extraction', () => {
+  it('returns the validated address for a literal public IP', async () => {
+    const target = await assertSafeTarget('http://93.184.216.34/', { schemes: ['http:', 'https:'] });
+    expect(target.pin).toEqual({ address: '93.184.216.34', family: 4 });
   });
 });

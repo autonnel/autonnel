@@ -102,3 +102,50 @@ describe("LiveCachedCatalogStore", () => {
     await expect(store.tombstoneStaleProducts()).rejects.toThrow(/read-only/);
   });
 });
+
+describe("LiveCachedCatalogStore — shared cache tier", () => {
+  // On workerd the in-process Map is almost always cold (short-lived isolates), so the shared
+  // cache is what actually bounds upstream calls. A second store instance simulates a new isolate.
+  it("a fresh instance reuses the shared entry instead of re-crawling the backend", async () => {
+    const backend = backendWithPages([{ products: [product("p1", "Alpha")], nextCursor: null }]);
+    await new LiveCachedCatalogStore(backend, "t:US").listProducts(10, 0);
+    expect(backend.listProducts).toHaveBeenCalledTimes(1);
+
+    const fresh = new LiveCachedCatalogStore(backend, "t:US");
+    const out = await fresh.listProducts(10, 0);
+
+    expect(out.products.map((p) => p.title)).toEqual(["Alpha"]);
+    expect(backend.listProducts).toHaveBeenCalledTimes(1); // served from the shared tier
+  });
+
+  it("round-trips prices and inventory through the shared cache", async () => {
+    const backend = backendWithPages([{ products: [product("p1", "Alpha")], nextCursor: null }]);
+    await new LiveCachedCatalogStore(backend, "t:RT").listProducts(10, 0);
+
+    const fresh = new LiveCachedCatalogStore(backend, "t:RT");
+    const out = await fresh.listProducts(10, 0);
+    const variant = out.products[0].variants[0];
+
+    expect(variant.externalVariantRef.toString()).toBe(
+      // same variant identity survives encode/decode
+      product("p1", "Alpha").variants[0].externalVariantRef.toString(),
+    );
+    expect(variant.inventory.available).toBe(product("p1", "Alpha").variants[0].inventory.available);
+  });
+
+  it("a different cache key does not reuse another key's entry", async () => {
+    const backend = backendWithPages([{ products: [product("p1", "Alpha")], nextCursor: null }]);
+    await new LiveCachedCatalogStore(backend, "t:US").listProducts(10, 0);
+    await new LiveCachedCatalogStore(backend, "t:DE").listProducts(10, 0);
+    expect(backend.listProducts).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("catalog-view-codec — unknown inventory", () => {
+  it("keeps a null stock level null through the shared cache (0 would read as out of stock)", async () => {
+    const { encodeProduct, decodeProduct } = await import("./catalog-view-codec");
+    const p = product("p1", "Alpha");
+    const decoded = decodeProduct(encodeProduct(p));
+    expect(decoded.variants[0].inventory.available).toBe(p.variants[0].inventory.available);
+  });
+});

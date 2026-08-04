@@ -142,7 +142,15 @@ interface ThankYouOrderRow {
   createdAt: Date;
 }
 
-export async function getOrderDataForThankYou(orderId: string | null): Promise<any | null> {
+export interface ThankYouOptions {
+  /** Buyer contact is only returned when the signed checkout session owns this sale. */
+  includeContact?: boolean;
+}
+
+export async function getOrderDataForThankYou(
+  orderId: string | null,
+  opts: ThankYouOptions = {},
+): Promise<any | null> {
   if (!orderId) return null;
 
   try {
@@ -204,8 +212,10 @@ export async function getOrderDataForThankYou(orderId: string | null): Promise<a
       discount: 0,
       total,
       currency: order.currencyCode || 'USD',
-      customerEmail: order.customerEmail || undefined,
-      customerName: order.customerName || undefined,
+      // Defaults to withheld: an orderId/saleRef travels in the URL, so it identifies but does
+      // not authorize. Only a caller that proved session ownership may surface buyer contact.
+      customerEmail: opts.includeContact ? order.customerEmail || undefined : undefined,
+      customerName: opts.includeContact ? order.customerName || undefined : undefined,
     };
   } catch (e) {
     logger.error('Failed to fetch order for thank-you page', { error: e });

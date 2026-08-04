@@ -5,6 +5,8 @@ export interface DomainRepository {
   list(): Promise<Domain[]>;
   findById(id: string): Promise<Domain | null>;
   findByHost(host: string): Promise<Domain | null>;
+  /** Host uniqueness is GLOBAL: host routing must resolve to exactly one tenant. */
+  findByHostAcrossTenants(host: string): Promise<{ tenantId: string } | null>;
   create(domain: Domain): Promise<Domain>;
   /** Atomically clear every other primary flag and set this id as primary. */
   setPrimary(id: string): Promise<Domain>;

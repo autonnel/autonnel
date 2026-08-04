@@ -17,7 +17,12 @@ export interface PaidOrdersPage {
 export interface OrderRepositoryPort {
   findBySaleRef(saleRef: SaleRef): Promise<Order | null>;
   findById(orderId: string): Promise<Order | null>;
-  findPaidWithBackendRef(limit: number, after?: OrderCursor): Promise<PaidOrdersPage>;
+  /**
+   * `createdBefore` bounds the sweep to orders young enough to still plausibly advance. Without it
+   * an order the backend will never resolve (deleted upstream, or a ref left behind by a previous
+   * provider) is re-polled on every tick forever, costing one upstream API call each time.
+   */
+  findPaidWithBackendRef(limit: number, after?: OrderCursor, createdAfter?: Date): Promise<PaidOrdersPage>;
   save(order: Order): Promise<void>;
 }
 

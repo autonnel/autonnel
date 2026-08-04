@@ -226,6 +226,13 @@ export function apiGuard<A extends AuthMode, B = unknown, Q = unknown>(
           }
         }
       } else if (opts.auth === 'externalApi') {
+        // validateApiToken resolves no feature grants, so a `feature` declared alongside this
+        // auth mode would be silently ignored — an authorization bypass. Fail closed and route
+        // such cases through withApiPrincipal + requireFeature (@/composition/external-auth).
+        if (opts.feature) {
+          logger.error('apiGuard: externalApi auth cannot enforce a feature grant', { feature: opts.feature });
+          return apiError.FORBIDDEN();
+        }
         const authHeader = context.request.headers.get('Authorization');
         const result = await validateApiToken(authHeader);
         if (!result.valid) {

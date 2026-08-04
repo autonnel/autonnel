@@ -51,10 +51,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { apiGuard, json, apiError } from '@/lib/api/guard';
 import { withAuth, jsonError as legacyJsonError } from '@/lib/api-helpers';
-import {
-  authenticateExternalApi,
-  requireWriteAccess,
-} from '@/lib/auth/externalApiAuth';
+import { FEATURES } from '@/lib/rbac/config';
 
 function buildCtx(opts: {
   url?: string;
@@ -353,26 +350,24 @@ describe('Backwards compatibility — legacy helpers preserve old shape', () => 
     expect(res.headers.get('WWW-Authenticate')).toBeNull();
   });
 
-  it('legacy authenticateExternalApi 401 keeps shape + WWW-Authenticate', async () => {
-    mocks.validateApiToken.mockResolvedValue({ valid: false, error: 'Invalid token' });
-    const ctx = buildCtx({ headers: { Authorization: 'Bearer x' } });
-    const result = await authenticateExternalApi(ctx);
-    expect(result).toBeInstanceOf(Response);
-    const res = result as Response;
-    expect(res.status).toBe(401);
-    expect(res.headers.get('WWW-Authenticate')).toBe('Bearer');
-    const body = (await res.json()) as any;
-    expect(body.error.type).toBe('authentication_error');
-    expect(body.error.code).toBe('invalid_api_key');
-    expect(body.error.message).toBe('Invalid token');
+  // The legacy authenticateExternalApi / requireWriteAccess helpers were deleted: they
+  // authenticated a key WITHOUT resolving its feature grants. Their replacement lives in
+  // @/composition/external-auth and is covered by v1.1/external-api-authz.test.ts.
+
+  it('apiGuard externalApi + feature fails closed instead of skipping the grant check', async () => {
+    mocks.validateApiToken.mockResolvedValue({ valid: true, userId: 'k1', writeAccess: true });
+    const route = apiGuard(
+      { auth: 'externalApi', feature: FEATURES.ORDERS, tenant: 'none' },
+      async () => json({ ok: true }),
+    );
+    const res = await route(buildCtx({ headers: { Authorization: 'Bearer x' } }));
+    expect(res.status).toBe(403);
   });
 
-  it('legacy requireWriteAccess preserves 403 body shape', async () => {
-    const res = requireWriteAccess({ authenticated: true, writeAccess: false });
-    expect(res).not.toBeNull();
-    expect(res!.status).toBe(403);
-    const body = (await res!.json()) as any;
-    expect(body.error.type).toBe('permission_error');
-    expect(body.error.code).toBe('write_access_denied');
+  it('apiGuard externalApi without a feature still works', async () => {
+    mocks.validateApiToken.mockResolvedValue({ valid: true, userId: 'k1', writeAccess: true });
+    const route = apiGuard({ auth: 'externalApi', tenant: 'none' }, async () => json({ ok: true }));
+    const res = await route(buildCtx({ headers: { Authorization: 'Bearer x' } }));
+    expect(res.status).toBe(200);
   });
 });

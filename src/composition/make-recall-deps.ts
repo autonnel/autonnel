@@ -104,7 +104,7 @@ export async function createRecallDepsForRequest(_locals?: Locals): Promise<Reca
     },
     commerceRead: {
       async resolveIncentiveRef(incentiveRef: string): Promise<{ code: string } | null> {
-        const coupon = await new PrismaCouponRepository(db).findById(incentiveRef);
+        const coupon = await new PrismaCouponRepository(db as never, getCurrentTenantId).findById(incentiveRef);
         return coupon ? { code: coupon.code } : null;
       },
     },

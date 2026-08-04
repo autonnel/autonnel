@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { Button as DsButton, Card as DsCard } from '../primitives/ds';
 import { FormInput, AlertBox, Checkbox, Textarea, dsFieldLabelClass } from '../primitives';
 import { apiCall, ApiCallError } from '@/lib/api/client';
+import { MAINTENANCE_PASSWORD_MIN } from '@/lib/auth/password-policy';
 import type { MaintenancePatchResult } from '@/contracts/settings';
 
 interface MaintenancePanelInitial {
@@ -40,8 +41,8 @@ export default function MaintenancePanel({ initial }: MaintenancePanelProps) {
   };
 
   const handleSave = async () => {
-    if (password && password.length < 4) {
-      setError('Password must be at least 4 characters');
+    if (password && password.length < MAINTENANCE_PASSWORD_MIN) {
+      setError(`Password must be at least ${MAINTENANCE_PASSWORD_MIN} characters`);
       return;
     }
     setSaving(true);
@@ -127,8 +128,8 @@ export default function MaintenancePanel({ initial }: MaintenancePanelProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Bypass password"
-            minLength={4}
-            hint="At least 4 characters"
+            minLength={MAINTENANCE_PASSWORD_MIN}
+            hint={`At least ${MAINTENANCE_PASSWORD_MIN} characters`}
           />
           {hasPassword && (
             <div className="text-[12px] text-ds-muted">

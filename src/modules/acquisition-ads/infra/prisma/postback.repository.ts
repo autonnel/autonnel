@@ -4,6 +4,7 @@ import { RetryPolicy } from '../../domain/value-objects/retry-policy';
 import { ClickIdentifier } from '../../domain/value-objects/click-identifier';
 import { HashedIdentity } from '../../domain/value-objects/hashed-identity';
 import { Money } from '../../../shared-kernel/money';
+import type { ConsentDecision } from '../../domain/services/consent-gate';
 import type { PostbackRepositoryPort } from '../../application/ports/outbound';
 
 function dispatchContextToDomain(raw: any): DispatchContext | undefined {
@@ -20,7 +21,9 @@ function dispatchContextToDomain(raw: any): DispatchContext | undefined {
     emailSha256: raw.hashedIdentity?.email ?? undefined,
     phoneSha256: raw.hashedIdentity?.phone ?? undefined,
   });
-  return { clickIdentifiers, hashedIdentity };
+  // Rows written before the decision was persisted have no field: treat as non-PII.
+  const consentDecision: ConsentDecision = raw.consentDecision === 'SEND_FULL' ? 'SEND_FULL' : 'SEND_NON_PII';
+  return { clickIdentifiers, hashedIdentity, consentDecision };
 }
 
 function dispatchContextToPersistence(ctx: DispatchContext | undefined) {
@@ -36,6 +39,7 @@ function dispatchContextToPersistence(ctx: DispatchContext | undefined) {
       email: ctx.hashedIdentity.email ?? null,
       phone: ctx.hashedIdentity.phone ?? null,
     },
+    consentDecision: ctx.consentDecision ?? 'SEND_NON_PII',
   };
 }
 

@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/logger';
+import { validateCheckoutRequest } from './checkout-request-validation';
 
 const logger = createLogger('CheckoutApi');
 
@@ -23,6 +24,9 @@ export async function handleCheckoutRequest(
     sessionId = cookie ? await surface.sessions.verifyCookieValue(cookie) : null;
     if (!sessionId) return { status: 401, body: { error: 'invalid_session' } };
   }
+
+  const invalidRequest = validateCheckoutRequest(action, body);
+  if (invalidRequest) return { status: 400, body: { ...invalidRequest } };
 
   try {
     switch (action) {

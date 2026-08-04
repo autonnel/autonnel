@@ -3,6 +3,15 @@ import { openaiImagesProvider } from '@/lib/llm/providers/image/openai-images';
 import { ProviderHttpError } from '@/lib/llm/errors';
 import type { LlmModel } from '@/lib/config/llm-models-types';
 
+// safeFetch dispatches through the address-pinned Node client, not globalThis.fetch. These specs
+// assert on a stubbed global fetch, so route the pinned dispatcher back to it. Pinning itself is
+// covered by src/lib/utils/__tests__/pinned-fetch.test.ts.
+vi.mock('@/lib/utils/pinned-fetch', () => ({
+  getPinnedFetch: async () => (url: string, init: Record<string, unknown>) =>
+    fetch(url, { ...init, redirect: 'manual' } as RequestInit),
+}));
+
+
 const fetchMock = vi.fn();
 const MODEL: LlmModel = {
   type: 'image', provider: 'openai-images',

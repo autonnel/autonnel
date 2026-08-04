@@ -63,3 +63,67 @@ describe("runSweep", () => {
     expect(cache.releaseLock).not.toHaveBeenCalled();
   });
 });
+
+describe("runSweep — interval gating", () => {
+  // The scheduled handler runs every sweep on every invocation and the trigger list is the union
+  // of all jobs' cron expressions, so the interval marker is what makes a declared schedule real.
+  const store = new Map<string, unknown>();
+
+  function intervalCache(): CacheAdapter {
+    return {
+      get: vi.fn(async (k: string) => (store.has(k) ? store.get(k) : null)),
+      set: vi.fn(async (k: string, v: unknown) => void store.set(k, v)),
+      delete: vi.fn(async (k: string) => void store.delete(k)),
+      deletePattern: vi.fn(async () => {}),
+      has: vi.fn(async () => false),
+      acquireLock: vi.fn(async () => true),
+      releaseLock: vi.fn(async () => {}),
+    } as never;
+  }
+
+  beforeEach(() => {
+    store.clear();
+    setCache(intervalCache());
+  });
+
+  it("runs the first time and suppresses an immediate second tick", async () => {
+    const fn = vi.fn(async () => "ok");
+    expect(await runSweep("commerce.catalog-sync", fn)).toBe("ok");
+    expect(await runSweep("commerce.catalog-sync", fn)).toBeUndefined();
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs again once the interval has elapsed", async () => {
+    const fn = vi.fn(async () => "ok");
+    await runSweep("commerce.catalog-sync", fn);
+    // 30 min interval: pretend the marker was written 31 minutes ago.
+    store.set("cron:last:commerce.catalog-sync", Date.now() - 31 * 60_000);
+    expect(await runSweep("commerce.catalog-sync", fn)).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("tolerates a tick that arrives slightly early rather than halving the frequency", async () => {
+    const fn = vi.fn(async () => "ok");
+    await runSweep("email.dispatch", fn); // 5 min interval
+    // Tick lands 200ms before the nominal boundary; it must still run.
+    store.set("cron:last:email.dispatch", Date.now() - (5 * 60_000 - 200));
+    expect(await runSweep("email.dispatch", fn)).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("stamps the marker before running so a throwing sweep still backs off", async () => {
+    const boom = vi.fn(async () => {
+      throw new Error("upstream down");
+    });
+    expect(await runSweep("commerce.catalog-sync", boom)).toBeUndefined();
+    expect(await runSweep("commerce.catalog-sync", boom)).toBeUndefined();
+    expect(boom).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves an unregistered sweep ungated", async () => {
+    const fn = vi.fn(async () => "ok");
+    expect(await runSweep("not.in.catalog", fn)).toBe("ok");
+    expect(await runSweep("not.in.catalog", fn)).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+});

@@ -5,5 +5,5 @@ import { ManageCouponsService } from '@/modules/coupons/application/manage-coupo
 
 export function makeCoupons() {
   const db = getTenantPrisma();
-  return new ManageCouponsService(new PrismaCouponRepository(db), getCurrentTenantId);
+  return new ManageCouponsService(new PrismaCouponRepository(db as never, getCurrentTenantId), getCurrentTenantId);
 }

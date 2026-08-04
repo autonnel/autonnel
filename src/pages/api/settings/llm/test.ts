@@ -24,6 +24,10 @@ interface ResolvedProbe {
   options?: Record<string, unknown>;
 }
 
+function normalizeBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, '');
+}
+
 async function resolve(body: LlmTestInput | null): Promise<ResolvedProbe> {
   if (!body || typeof body !== 'object') throw new ApiError(400, 'Invalid body');
   if (typeof body.type !== 'string' || !(LLM_MODEL_TYPES as readonly string[]).includes(body.type)) {
@@ -38,19 +42,32 @@ async function resolve(body: LlmTestInput | null): Promise<ResolvedProbe> {
     throw new ApiError(400, 'options must be an object when provided');
   }
 
+  const provider = body.provider.trim();
+  const modelId = body.modelId.trim();
+  const baseUrl = normalizeBaseUrl(body.baseUrl);
+
   let apiKey = body.apiKey;
   if (apiKey === '') {
+    // A stored key is only ever replayed to the destination it was stored with. Reusing it for a
+    // caller-chosen provider/baseUrl would exfiltrate a credential the settings API masks on read.
     const existing = (await listLlmModels()).find((r) => r.type === body.type && r.name === body.name);
-    apiKey = existing?.apiKey ?? '';
-    if (!apiKey) throw new ApiError(400, 'apiKey required when no stored row to fall back to');
+    if (!existing?.apiKey) throw new ApiError(400, 'apiKey required when no stored row to fall back to');
+    const sameDestination =
+      existing.provider === provider &&
+      existing.modelId === modelId &&
+      normalizeBaseUrl(existing.baseUrl) === baseUrl;
+    if (!sameDestination) {
+      throw new ApiError(400, 'apiKey is required when changing provider, model or base URL');
+    }
+    apiKey = existing.apiKey;
   }
 
   return {
     type: body.type,
-    provider: body.provider.trim(),
+    provider,
     name: body.name.trim(),
-    modelId: body.modelId.trim(),
-    baseUrl: body.baseUrl.trim().replace(/\/+$/, ''),
+    modelId,
+    baseUrl,
     apiKey,
     options: body.options,
   };

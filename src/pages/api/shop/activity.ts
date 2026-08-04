@@ -35,10 +35,24 @@ function extractEvents(payload: unknown): RawActivityEvent[] {
   return [];
 }
 
-// A tracking beacon must never surface a 500: always return 2xx.
+export const MAX_BODY_BYTES = 64 * 1024;
+
+function tooLarge(): Response {
+  return new Response(JSON.stringify({ stored: 0, error: 'payload_too_large' }), {
+    status: 413,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+// A tracking beacon must never surface a 500: always return 2xx — except for an oversized body,
+// which is refused with 413 so a single anonymous request cannot buy unbounded memory and storage.
 export const POST: APIRoute = async (ctx) => {
   try {
-    const payload = await ctx.request.json();
+    const declared = Number(ctx.request.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return tooLarge();
+    const text = await ctx.request.text();
+    if (text.length > MAX_BODY_BYTES) return tooLarge();
+    const payload = JSON.parse(text) as unknown;
     const events = extractEvents(payload);
     const { stored } = await makeActivityIngest().recordActivity({ events });
     return new Response(JSON.stringify({ stored }), {

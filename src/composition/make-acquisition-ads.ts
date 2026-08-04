@@ -48,8 +48,10 @@ export interface AdsDeps {
   jobQueue: { enqueue(job: { kind: string; idempotencyKey: string; payload: unknown; coalesce?: boolean }): Promise<void> };
   events: { publish(e: { type: string; payload: unknown }): Promise<void> };
   newId: () => string;
-  decodeState: (state: string) => { platform: string; externalAccountId: string };
-  encodeState: (input: { platform: string }) => string;
+  // Async because the state is HMAC-signed (Web Crypto) and its single-use nonce is stored in
+  // and consumed from the cache.
+  decodeState: (state: string) => Promise<{ platform: string; externalAccountId: string }>;
+  encodeState: (input: { platform: string }) => Promise<string>;
   clientIdFor: (platform: string) => Promise<string>;
 }
 

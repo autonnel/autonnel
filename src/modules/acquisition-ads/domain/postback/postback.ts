@@ -2,6 +2,7 @@ import type { ConversionEvent } from '../value-objects/conversion-event';
 import type { RetryPolicy } from '../value-objects/retry-policy';
 import type { ClickIdentifier } from '../value-objects/click-identifier';
 import type { HashedIdentity } from '../value-objects/hashed-identity';
+import type { ConsentDecision } from '../services/consent-gate';
 import { PostbackTransitionError } from '../errors';
 
 export type DeliveryStatus =
@@ -17,6 +18,12 @@ export interface AttemptLog {
 export interface DispatchContext {
   clickIdentifiers: ClickIdentifier[];
   hashedIdentity: HashedIdentity;
+  /**
+   * The consent gate's decision, frozen at record time. Dispatch must honour it and never
+   * re-derive or upgrade it. Optional so rows persisted before this field existed still
+   * reconstitute; absence is treated as SEND_NON_PII (the safe direction).
+   */
+  consentDecision?: ConsentDecision;
 }
 
 interface CreateProps {

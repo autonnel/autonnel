@@ -349,13 +349,17 @@ class CheckoutOrchestrator {
       }
       await this.syncSession();
       const resolvedBuyer = buyer ?? buyerFromState(this.state);
-      const res = await postJson<{ saleRef?: string; clientHandle?: string; error?: string }>(
+      const res = await postJson<{ saleRef?: string; clientHandle?: string; error?: string; message?: string }>(
         '/api/checkout/submit',
         { buyer: resolvedBuyer, captureMethod: 'automatic', provider },
       );
       if (!res.ok || !res.data.saleRef) {
+        // `message` first: it carries the actual reason and is what lands in the
+        // payment_error analytics row. `error` alone is an opaque code like
+        // "checkout_failed", which makes a live outage indistinguishable from a bad coupon.
         const message =
           this.cartError ||
+          res.data.message ||
           res.data.error ||
           'We could not start your order. Please check the items and try again.';
         warn('Submit failed', { status: res.status, error: res.data.error, cartError: this.cartError });

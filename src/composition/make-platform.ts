@@ -2,7 +2,7 @@
 // Pass `locals` when an inline (waitUntil) dispatch is needed; cron callers omit it (CRON_POLL only).
 import { getTenantPrisma } from "../modules/platform/infra/prisma-tenant-extension";
 import { getBasePrisma } from "../lib/db";
-import { getCurrentTenantId } from "../lib/tenant/context";
+import { getCurrentTenantId, runWithTenant } from "../lib/tenant/context";
 import { InProcessJobHandlerRegistry } from "../modules/platform/infra/registries/job-handler-registry";
 import { InProcessHookRegistry } from "../modules/platform/infra/registries/hook-registry";
 import { InProcessMcpServer } from "../modules/platform/infra/registries/mcp-server";
@@ -39,7 +39,7 @@ export function makePlatform(locals?: { cfContext?: { waitUntil(p: Promise<unkno
 
   const runJob = new RunJobService(jobRepo, handlerRegistry, RETRY_POLICY);
   const enqueueJob = new EnqueueJobService(jobRepo, handlerRegistry, deferred, tenantPort, runJob);
-  const pollPendingJobs = new PollPendingJobsService(jobRepo, runJob, { batchSize: 50, leaseMs: 30_000 });
+  const pollPendingJobs = new PollPendingJobsService(jobRepo, runJob, { batchSize: 50, leaseMs: 30_000 }, runWithTenant);
   const getEffectiveConfig = new GetEffectiveConfigService(configRepo, env, tenantPort);
   const setConfig = new SetConfigService(configRepo, tenantPort);
 

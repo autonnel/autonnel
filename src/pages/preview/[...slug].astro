@@ -1,5 +1,6 @@
 ---
 import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
 import { getCurrentTenantId } from '@/lib/tenant/context';
 import { getBrandingName, getBrandingFavicon } from '@/lib/config/keys';
 import { findPageIncludingDrafts, getOrderDataForThankYou } from '@/lib/storefront/storefront-data.service';
@@ -14,6 +15,11 @@ import { migratePuckData } from '@/components/builder/migrate-keys';
 const auth = await checkAuth(Astro);
 if (!auth.authenticated || !auth.user) {
   return Astro.redirect('/login');
+}
+// Preview renders DRAFT data, settings and body scripts — same trust level as the editor,
+// so it needs the same PAGES grant every other authoring surface requires.
+if (!(await userHasFeature(auth.user.id, FEATURES.PAGES))) {
+  return Astro.redirect('/');
 }
 
 const pageSlug = Astro.params.slug ?? '';
@@ -123,7 +129,10 @@ const googleMapsApiKey = import.meta.env.GOOGLE_MAPS_API_KEY || process.env.GOOG
 const paypalIntent = 'capture';
 
 const previewOrderId = page.type === 'THANKYOU' ? url.searchParams.get('orderId') : null;
-const ssrOrderData = previewOrderId ? await getOrderDataForThankYou(previewOrderId) : null;
+// Preview is PAGES-gated, so an author may see the sample order's contact fields.
+const ssrOrderData = previewOrderId
+  ? await getOrderDataForThankYou(previewOrderId, { includeContact: true })
+  : null;
 ---
 {isHtmlEditor ? (
   <HtmlEditorPageLayout

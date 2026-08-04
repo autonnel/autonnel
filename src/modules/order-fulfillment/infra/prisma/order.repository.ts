@@ -26,7 +26,7 @@ export class PrismaOrderRepository implements OrderRepositoryPort {
 
   // Keyset pagination on (updatedAt, id) so each sweep advances past already-synced rows instead of
   // re-scanning the oldest page; a stable secondary id key breaks updatedAt ties deterministically.
-  async findPaidWithBackendRef(limit: number, after?: OrderCursor): Promise<PaidOrdersPage> {
+  async findPaidWithBackendRef(limit: number, after?: OrderCursor, createdAfter?: Date): Promise<PaidOrdersPage> {
     const cursorWhere = after
       ? {
           OR: [
@@ -36,7 +36,12 @@ export class PrismaOrderRepository implements OrderRepositoryPort {
         }
       : {};
     const rows = await this.db.order.findMany({
-      where: { status: { in: ["PAID", "SHIPPED"] }, backendOrderRef: { not: null }, ...cursorWhere },
+      where: {
+        status: { in: ["PAID", "SHIPPED"] },
+        backendOrderRef: { not: null },
+        ...(createdAfter ? { createdAt: { gte: createdAfter } } : {}),
+        ...cursorWhere,
+      },
       take: limit,
       orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
     });

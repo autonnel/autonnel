@@ -1,3 +1,8 @@
+import { isCloudflareRuntime } from '@/lib/runtime/env';
+import { createLogger } from '@/lib/logger';
+import { getPinnedFetch } from './pinned-fetch';
+
+const logger = createLogger('SafeUrl');
 
 export class UnsafeUrlError extends Error {
   code = 'UNSAFE_URL' as const;
@@ -25,7 +30,9 @@ export interface SafeFetchOptions extends SafeUrlOptions {
   maxBytes?: number;
   method?: string;
   headers?: HeadersInit;
-  body?: BodyInit;
+  // Narrowed from BodyInit: the pinned Node path can only forward a string/bytes body, and every
+  // caller already passes a JSON string. Keeping the constraint visible avoids a silent drop.
+  body?: string | Uint8Array;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -35,6 +42,20 @@ const DEFAULT_SCHEMES: ReadonlyArray<'http:' | 'https:'> = ['https:'];
 
 let _dnsLookup: ((host: string) => Promise<{ address: string; family: number }[]>) | null = null;
 let _dnsProbed = false;
+
+// Test seam: lets a spec assert the fail-closed branch without a runtime that lacks node:dns.
+export function __setDnsLookupForTest(
+  lookup: ((host: string) => Promise<{ address: string; family: number }[]>) | null,
+): void {
+  _dnsLookup = lookup;
+  _dnsProbed = true;
+}
+
+// Test seam: restore the real capability probe so one spec cannot disable DNS for the rest.
+export function __resetDnsProbeForTest(): void {
+  _dnsLookup = null;
+  _dnsProbed = false;
+}
 
 async function getDnsLookup() {
   if (_dnsProbed) return _dnsLookup;
@@ -107,7 +128,13 @@ function isPrivateIp(ip: string, family: 4 | 6): boolean {
   return family === 4 ? isIpV4Private(ip) : isIpV6Private(ip);
 }
 
-export async function assertSafeUrl(rawUrl: string, opts: SafeUrlOptions = {}): Promise<URL> {
+export interface SafeTarget {
+  url: URL;
+  /** The single validated address the connection must be pinned to; null when DNS is unavailable. */
+  pin: { address: string; family: 4 | 6 } | null;
+}
+
+export async function assertSafeTarget(rawUrl: string, opts: SafeUrlOptions = {}): Promise<SafeTarget> {
   const schemes = opts.schemes ?? DEFAULT_SCHEMES;
   let parsed: URL;
   try {
@@ -134,30 +161,39 @@ export async function assertSafeUrl(rawUrl: string, opts: SafeUrlOptions = {}): 
   }
 
   const literal = isLiteralIp(host);
-  if (literal && isPrivateIp(literal.ip, literal.family)) {
-    throw new UnsafeUrlError(`literal private IP ${literal.ip}`);
+  if (literal) {
+    if (isPrivateIp(literal.ip, literal.family)) {
+      throw new UnsafeUrlError(`literal private IP ${literal.ip}`);
+    }
+    return { url: parsed, pin: { address: literal.ip, family: literal.family } };
   }
 
   const lookup = await getDnsLookup();
-  if (lookup && !literal) {
-    let records: { address: string; family: number }[];
-    try {
-      records = await lookup(host);
-    } catch (err) {
-      throw new UnsafeUrlError(`DNS lookup failed for ${host}`);
-    }
-    if (records.length === 0) {
-      throw new UnsafeUrlError(`no DNS records for ${host}`);
-    }
-    for (const r of records) {
-      const fam = r.family === 6 ? 6 : 4;
-      if (isPrivateIp(r.address, fam)) {
-        throw new UnsafeUrlError(`${host} resolved to private IP ${r.address}`);
-      }
+  if (!lookup) return { url: parsed, pin: null };
+
+  let records: { address: string; family: number }[];
+  try {
+    records = await lookup(host);
+  } catch {
+    throw new UnsafeUrlError(`DNS lookup failed for ${host}`);
+  }
+  if (records.length === 0) {
+    throw new UnsafeUrlError(`no DNS records for ${host}`);
+  }
+  for (const r of records) {
+    const fam = r.family === 6 ? 6 : 4;
+    if (isPrivateIp(r.address, fam)) {
+      throw new UnsafeUrlError(`${host} resolved to private IP ${r.address}`);
     }
   }
+  const chosen = records[0];
+  return { url: parsed, pin: { address: chosen.address, family: chosen.family === 6 ? 6 : 4 } };
+}
 
-  return parsed;
+// Back-compat wrapper for callers that only need the validation, not the pin
+// (cf-browser-rendering hands the URL to Cloudflare, which does its own egress).
+export async function assertSafeUrl(rawUrl: string, opts: SafeUrlOptions = {}): Promise<URL> {
+  return (await assertSafeTarget(rawUrl, opts)).url;
 }
 
 export async function safeFetch(url: string, opts: SafeFetchOptions = {}): Promise<Response> {
@@ -168,19 +204,13 @@ export async function safeFetch(url: string, opts: SafeFetchOptions = {}): Promi
   let current = url;
   let hops = 0;
   while (true) {
-    await assertSafeUrl(current, opts);
+    const target = await assertSafeTarget(current, opts);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
-      res = await fetch(current, {
-        method: opts.method ?? 'GET',
-        headers: opts.headers,
-        body: opts.body,
-        redirect: 'manual',
-        signal: controller.signal,
-      });
+      res = await dispatch(current, target, opts, controller.signal);
     } finally {
       clearTimeout(timer);
     }
@@ -203,6 +233,47 @@ export async function safeFetch(url: string, opts: SafeFetchOptions = {}): Promi
 
     return capResponseBody(res, maxBytes);
   }
+}
+
+// Pin the validated address when the runtime can. workerd cannot (no node:http, and its fetch
+// takes no address), but Cloudflare's egress cannot reach private space, so the request is allowed
+// and recorded. Every other runtime without DNS or pinning fails closed.
+async function dispatch(
+  current: string,
+  target: SafeTarget,
+  opts: SafeFetchOptions,
+  signal: AbortSignal,
+): Promise<Response> {
+  const pinned = await getPinnedFetch();
+  if (pinned && target.pin) {
+    return pinned(current, {
+      pinnedAddress: target.pin.address,
+      family: target.pin.family,
+      method: opts.method ?? 'GET',
+      headers: opts.headers,
+      body: opts.body,
+      signal,
+    });
+  }
+
+  if (isCloudflareRuntime()) {
+    logger.debug('outbound fetch not address-pinned on workerd; relying on platform egress limits', {
+      host: target.url.hostname,
+      dnsValidated: target.pin !== null,
+    });
+    return fetch(current, {
+      method: opts.method ?? 'GET',
+      headers: opts.headers,
+      // A Uint8Array is a valid runtime body; the lib type wants an ArrayBuffer-backed view.
+      body: opts.body as BodyInit | undefined,
+      redirect: 'manual',
+      signal,
+    });
+  }
+
+  throw new UnsafeUrlError(
+    'outbound request blocked: this runtime provides neither DNS validation nor address pinning',
+  );
 }
 
 function capResponseBody(res: Response, maxBytes: number): Response {

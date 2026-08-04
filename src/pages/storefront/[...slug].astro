@@ -9,6 +9,7 @@ import {
   getTenantInfo,
   getOrderDataForThankYou,
 } from '@/lib/storefront/storefront-data.service';
+import { ownsSale } from '@/lib/storefront/sale-ownership';
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
 import { appendQueryParamsToPuckCtaLinks } from '@/lib/puck/resolve-funnel-cta-links';
 import { resolveEntryExperiment } from '@/lib/storefront/experiment-routing';
@@ -197,7 +198,12 @@ const {
 const faviconData = tenant.favicon || null;
 
 const orderId = page.type === 'THANKYOU' ? url.searchParams.get('orderId') : null;
-const ssrOrderData = orderId ? await getOrderDataForThankYou(orderId) : null;
+// The order itself still renders for anyone holding the link, but buyer contact requires the
+// signed checkout session that created the sale.
+const ownsThisOrder = orderId ? await ownsSale(Astro.request, Astro.locals, orderId) : false;
+const ssrOrderData = orderId
+  ? await getOrderDataForThankYou(orderId, { includeContact: ownsThisOrder })
+  : null;
 
 const needsClientJs = page.type === 'CHECKOUT' || page.type === 'UPSELL';
 

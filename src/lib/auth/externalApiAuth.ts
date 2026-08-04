@@ -1,46 +1,11 @@
-import type { APIContext } from 'astro';
-import { validateApiToken, createUnauthorizedResponse } from './apiAuth';
-
-export interface ExternalAuthResult {
-  authenticated: true;
-  userId?: string;
-  writeAccess?: boolean;
-}
-
+// Response helpers for the external v1.1 API. Authentication and authorization live in
+// `@/composition/external-auth` (withApiPrincipal + requireFeature + requireWriteAccess):
+// there is deliberately no helper here that authenticates WITHOUT resolving feature grants,
+// because the previous one let routes silently skip authorization.
 const CONTENT_TYPE_JSON = { 'Content-Type': 'application/json' } as const;
 
 function send(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: CONTENT_TYPE_JSON });
-}
-
-const WRITE_DENIED = {
-  error: {
-    message: 'Write access is not enabled for this API key. Enable it in API Settings.',
-    type: 'permission_error',
-    code: 'write_access_denied',
-  },
-} as const;
-
-export async function authenticateExternalApi(
-  context: APIContext,
-): Promise<ExternalAuthResult | Response> {
-  const token = context.request.headers.get('Authorization');
-  const check = await validateApiToken(token);
-
-  if (check.valid) {
-    return {
-      authenticated: true,
-      userId: check.userId,
-      writeAccess: check.writeAccess,
-    };
-  }
-
-  return createUnauthorizedResponse(check.error || 'Invalid token');
-}
-
-export function requireWriteAccess(auth: ExternalAuthResult): Response | null {
-  if (auth.writeAccess) return null;
-  return send(WRITE_DENIED, 403);
 }
 
 export function jsonError(message: string, status: number): Response {

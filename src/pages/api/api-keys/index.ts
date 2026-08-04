@@ -3,7 +3,7 @@ import { defineRoute, ApiError } from '@/lib/api/define-route';
 import { makeIdentity } from '@/composition/make-identity';
 import { isFeatureKey, toFeatureKey } from '@/modules/identity/domain/feature-key';
 import { PermissionSet } from '@/modules/identity/domain/permission-set';
-import { FEATURES as FEATURE_CATALOG } from '@/modules/identity/infra/feature-catalog';
+import { getPrincipal } from '@/modules/identity/application/principal-resolution';
 import { resolveIdentityDeps } from '@/composition/identity-deps';
 import type { ApiKeyDto } from '@/contracts/identity';
 
@@ -29,9 +29,15 @@ export const GET = defineRoute('GET /api/api-keys', { feature: 'API_KEYS' }, asy
 });
 
 export const POST = defineRoute('POST /api/api-keys', { feature: 'API_KEYS', status: 201 }, async ({ input, locals, request }) => {
-  // No explicit grants (the dashboard form sends none) ⇒ full API scope; writeAccess still gates mutations.
+  // A key is a delegation, never an escalation: the issued scope is always a subset of the
+  // creator's own effective permissions. Omitted grants mean "everything I can delegate".
+  const creatorScope = getPrincipal()?.permissions ?? PermissionSet.empty();
   const explicitGrants = Array.isArray(input?.grants) ? input!.grants.filter(isFeatureKey).map(toFeatureKey) : null;
-  const scope = PermissionSet.of(explicitGrants ?? FEATURE_CATALOG.map(toFeatureKey));
+  const requested = explicitGrants ? PermissionSet.of(explicitGrants) : creatorScope;
+  const scope = requested.intersect(creatorScope);
+  if (explicitGrants && scope.toArray().length !== new Set(explicitGrants).size) {
+    throw new ApiError(403, 'Requested grants exceed your own permissions');
+  }
   const expiresAt = input?.expiresAt ? new Date(input.expiresAt) : null;
   const name = typeof input?.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : null;
   const identity = makeIdentity(resolveIdentityDeps({ locals, request } as APIContext));

@@ -16,20 +16,22 @@ beforeEach(() => {
 });
 
 describe('permissions/cache', () => {
-  it('buildUserRolesCacheKey uses perm:roles: prefix', () => {
-    expect(buildUserRolesCacheKey('u1')).toBe('perm:roles:u1');
+  // Keys are tenant-scoped: user IDs are global while memberships and roles are per tenant, so a
+  // user-only key would let one tenant's permissions be reused while authorizing in another.
+  it('buildUserRolesCacheKey uses perm:roles:<tenant>: prefix', () => {
+    expect(buildUserRolesCacheKey('u1')).toBe('perm:roles:default:u1');
   });
 
-  it('buildUserFeaturesCacheKey uses perm:features: prefix', () => {
-    expect(buildUserFeaturesCacheKey('u1')).toBe('perm:features:u1');
+  it('buildUserFeaturesCacheKey uses perm:features:<tenant>: prefix', () => {
+    expect(buildUserFeaturesCacheKey('u1')).toBe('perm:features:default:u1');
   });
 
   it('invalidateUserRolesCache deletes both roles and features keys for the user', async () => {
-    await cache.set('perm:roles:u1', ['admin']);
-    await cache.set('perm:features:u1', ['sites']);
+    await cache.set(buildUserRolesCacheKey('u1'), ['admin']);
+    await cache.set(buildUserFeaturesCacheKey('u1'), ['sites']);
     await invalidateUserRolesCache('u1');
-    expect(await cache.get('perm:roles:u1')).toBeNull();
-    expect(await cache.get('perm:features:u1')).toBeNull();
+    expect(await cache.get(buildUserRolesCacheKey('u1'))).toBeNull();
+    expect(await cache.get(buildUserFeaturesCacheKey('u1'))).toBeNull();
   });
 
   it('invalidateAllPermissionCaches clears all roles and features keys', async () => {

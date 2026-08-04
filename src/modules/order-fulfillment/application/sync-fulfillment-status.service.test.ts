@@ -4,7 +4,7 @@ import { Order } from "../domain/order";
 import { OfferLineSnapshot, CustomerSnapshot, BackendOrderRef, RefundRecordRef } from "../domain/value-objects";
 import { FulfillmentStatus } from "../domain/fulfillment-status";
 import { TrackingInfo } from "../domain/tracking-info";
-import { SyncFulfillmentStatusService } from "./sync-fulfillment-status.service";
+import { SyncFulfillmentStatusService, MAX_SYNC_AGE_DAYS } from "./sync-fulfillment-status.service";
 import { MarkOrderDeliveredService } from "./mark-order-delivered.service";
 import type {
   OrderRepositoryPort,
@@ -196,5 +196,32 @@ describe("MarkOrderDeliveredService", () => {
 
     expect(out).toEqual({ changed: true, state: "DELIVERED" });
     expect(h.send.mock.calls[0]![0].templateKey).toBe("order.delivered");
+  });
+});
+
+describe("SyncFulfillmentStatusService — age cutoff", () => {
+  it("bounds the sweep to orders young enough to still advance", async () => {
+    let captured: Date | undefined;
+    const repo = {
+      findPaidWithBackendRef: async (_l: number, _c: unknown, createdAfter?: Date) => {
+        captured = createdAfter;
+        return { orders: [], nextCursor: null };
+      },
+      findById: async () => null,
+      save: async () => {},
+      findBySaleRef: async () => null,
+    } as never;
+    const svc = new SyncFulfillmentStatusService(
+      repo,
+      { readFulfillment: async () => ({ status: "unfulfilled", tracking: undefined }) } as never,
+      { publish: async () => {} } as never,
+      { emit: async () => {} } as never,
+    );
+
+    await svc.sweep();
+
+    expect(captured).toBeInstanceOf(Date);
+    const ageDays = (Date.now() - captured!.getTime()) / (24 * 60 * 60 * 1000);
+    expect(Math.round(ageDays)).toBe(MAX_SYNC_AGE_DAYS);
   });
 });

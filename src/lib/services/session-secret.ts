@@ -11,15 +11,21 @@ function devFallbackAllowed(): boolean {
   return nodeEnv === 'development' || nodeEnv === 'test';
 }
 
+// Accepts a key chain so a purpose-specific secret can stay an optional override of
+// AUTH_SESSION_SECRET. Requiring an undocumented second secret took checkout down
+// silently for weeks: pages still rendered, only the API threw.
 export function resolveSessionSecret(
-  envKey = 'AUTH_SESSION_SECRET',
+  envKey: string | string[] = 'AUTH_SESSION_SECRET',
   env?: Record<string, unknown>,
 ): string {
-  const configured = env ? (env[envKey] as string | undefined) : readEnv(envKey);
-  if (configured) return configured;
+  const envKeys = Array.isArray(envKey) ? envKey : [envKey];
+  for (const key of envKeys) {
+    const configured = env ? (env[key] as string | undefined) : readEnv(key);
+    if (configured) return configured;
+  }
 
   if (!devFallbackAllowed()) {
-    throw new Error(`${envKey} is required unless NODE_ENV is 'development' or 'test'`);
+    throw new Error(`${envKeys.join(' or ')} is required unless NODE_ENV is 'development' or 'test'`);
   }
 
   return DEV_FALLBACK;

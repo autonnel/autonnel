@@ -216,7 +216,7 @@ function toCouponDefinition(c: {
 function makeCouponReader(): StorefrontCheckoutDeps['couponReader'] {
   return {
     async findByCode(code): Promise<CouponDefinition | null> {
-      const coupon = await new PrismaCouponRepository(getTenantPrisma()).findByCode(code);
+      const coupon = await new PrismaCouponRepository(getTenantPrisma() as never, getCurrentTenantId).findByCode(code);
       if (!coupon) return null;
       if (!coupon.isActive || coupon.isExpired(new Date()) || coupon.isExhausted()) return null;
       return toCouponDefinition(coupon);
@@ -315,7 +315,7 @@ export function storefrontCheckoutDepsFromLocals(locals?: unknown): StorefrontCh
     prisma: getTenantPrisma() as unknown as PrismaClient,
     kv: resolveKv(),
     tenantId: getCurrentTenantId(),
-    cookieSecret: resolveSessionSecret('CHECKOUT_COOKIE_SECRET', env),
+    cookieSecret: resolveSessionSecret(['CHECKOUT_COOKIE_SECRET', 'AUTH_SESSION_SECRET'], env),
     paymentsPort: makePaymentsPort(),
     catalogPort: makeCatalogPort(market),
     handoffPort: makeHandoffPort(),

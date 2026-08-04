@@ -32,3 +32,68 @@ describe('marketing beacon route', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('marketing beacon — field bounds', () => {
+  function captureIngest() {
+    const captured: Record<string, unknown>[] = [];
+    return {
+      captured,
+      ingest: {
+        capture: async (input: Record<string, unknown>) => {
+          captured.push(input);
+          return { stored: true };
+        },
+      } as never,
+    };
+  }
+
+  const post = (body: unknown) =>
+    new Request('https://shop.test/api/marketing/beacon', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('truncates sessionId and landingUrl to their caps', async () => {
+    const { captured, ingest } = captureIngest();
+    await handleBeacon(
+      post({ sessionId: 's'.repeat(5000), landingUrl: `https://x.test/${'p'.repeat(5000)}` }),
+      ingest,
+    );
+    expect((captured[0].sessionId as string).length).toBe(512);
+    expect((captured[0].landingUrl as string).length).toBe(2048);
+  });
+
+  it('drops a query object with too many keys', async () => {
+    const { captured, ingest } = captureIngest();
+    const query: Record<string, string> = {};
+    for (let i = 0; i < 200; i++) query[`k${i}`] = 'v';
+    await handleBeacon(post({ sessionId: 's1', landingUrl: 'https://x.test/', query }), ingest);
+    expect(Object.keys(captured[0].query as object)).toHaveLength(0);
+  });
+
+  it('truncates individual query values', async () => {
+    const { captured, ingest } = captureIngest();
+    await handleBeacon(
+      post({ sessionId: 's1', landingUrl: 'https://x.test/', query: { fbclid: 'z'.repeat(5000) } }),
+      ingest,
+    );
+    expect(((captured[0].query as Record<string, string>).fbclid).length).toBe(512);
+  });
+
+  it('keeps a normal payload intact', async () => {
+    const { captured, ingest } = captureIngest();
+    await handleBeacon(
+      post({ sessionId: 's1', landingUrl: 'https://x.test/lp', query: { fbclid: 'abc' }, fbp: 'fb.1.2.3' }),
+      ingest,
+    );
+    expect(captured[0]).toMatchObject({ sessionId: 's1', landingUrl: 'https://x.test/lp', fbp: 'fb.1.2.3' });
+    expect(captured[0].query).toEqual({ fbclid: 'abc' });
+  });
+
+  it('rejects a non-string sessionId instead of coercing it', async () => {
+    const { ingest } = captureIngest();
+    const res = await handleBeacon(post({ sessionId: { evil: true }, landingUrl: 'https://x.test/' }), ingest);
+    expect(res.status).toBe(400);
+  });
+});

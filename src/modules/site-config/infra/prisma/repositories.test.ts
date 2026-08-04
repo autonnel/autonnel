@@ -4,6 +4,9 @@ import { PrismaGlobalScriptRepository } from './global-script.repository';
 import { Domain } from '../../domain/domain';
 import { GlobalScript } from '../../domain/global-script';
 
+// The un-scoped delegate used only for the global host-uniqueness lookup.
+const unscoped = () => ({ findFirst: vi.fn().mockResolvedValue(null) }) as never;
+
 describe('PrismaDomainRepository', () => {
   it('maps rows to Domain and lists them', async () => {
     const prisma = {
@@ -11,7 +14,7 @@ describe('PrismaDomainRepository', () => {
         findMany: vi.fn().mockResolvedValue([{ id: 'd1', tenantId: 't1', host: 'a.com', isPrimary: true }]),
       },
     };
-    const repo = new PrismaDomainRepository(prisma as never);
+    const repo = new PrismaDomainRepository(prisma as never, unscoped());
     const out = await repo.list();
     expect(out[0]).toBeInstanceOf(Domain);
     expect(out[0].host).toBe('a.com');
@@ -20,10 +23,22 @@ describe('PrismaDomainRepository', () => {
   it('setPrimary clears other flags then sets the target', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const update = vi.fn().mockResolvedValue({ id: 'd2', tenantId: 't1', host: 'b.com', isPrimary: true });
-    const repo = new PrismaDomainRepository({ domain: { updateMany, update } } as never);
+    const repo = new PrismaDomainRepository({ domain: { updateMany, update } } as never, unscoped());
     const out = await repo.setPrimary('d2');
     expect(updateMany).toHaveBeenCalledWith({ where: { isPrimary: true }, data: { isPrimary: false } });
     expect(out.isPrimary).toBe(true);
+  });
+
+  it('findByHostAcrossTenants queries the UN-scoped client so other tenants are visible', async () => {
+    const findFirst = vi.fn().mockResolvedValue({ tenantId: 'other-tenant' });
+    const repo = new PrismaDomainRepository({ domain: {} } as never, { findFirst } as never);
+    await expect(repo.findByHostAcrossTenants('shared.example.com')).resolves.toEqual({
+      tenantId: 'other-tenant',
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { host: 'shared.example.com' },
+      select: { tenantId: true },
+    });
   });
 });
 

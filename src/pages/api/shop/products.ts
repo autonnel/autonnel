@@ -1,19 +1,38 @@
+import pLimit from 'p-limit';
 import { defineRoute } from '@/lib/api/define-route';
 import { makeLiveStorefrontCatalogReadSide } from '@/composition/make-commerce-gateway';
 import { createLogger } from '@/lib/logger';
+
+// A public URL must not amplify into unbounded outbound calls against the commerce provider.
+export const MAX_PRODUCT_IDS = 50;
+export const PRODUCT_LOOKUP_CONCURRENCY = 6;
 import { getDefaultCurrencyCode, toShopProductDto } from '@/lib/storefront/shop-catalog.mapper';
 import type { StorefrontCatalogReadPort } from '@/modules/commerce-gateway/application/ports/inbound';
 import type { ShopProductDto, ShopProductListDto, ShopProductSingleDto } from '@/contracts/shop';
 
 const logger = createLogger('ShopProducts');
 
+// The country becomes part of the live-catalog cache key, so it must not be free-form
+// client input: an arbitrary Accept-Language region would mint an unbounded number of cache
+// keys, each costing its own full upstream catalog fetch. Only well-formed ISO-3166 alpha-2
+// codes are honoured; anything else falls back to the default market.
+const COUNTRY_CODE = /^[A-Z]{2}$/;
+
+function normalizeCountry(raw: string | null): string | null {
+  if (!raw) return null;
+  const upper = raw.trim().toUpperCase();
+  return COUNTRY_CODE.test(upper) ? upper : null;
+}
+
 function countryFromRequest(request: Request): string {
-  const cfCountry = request.headers.get('cf-ipcountry');
-  if (cfCountry) return cfCountry.toUpperCase();
+  // cf-ipcountry is set by the edge and is not client-controllable behind Cloudflare.
+  const cf = normalizeCountry(request.headers.get('cf-ipcountry'));
+  if (cf) return cf;
   const acceptLanguage = request.headers.get('accept-language');
   if (acceptLanguage) {
     const parts = acceptLanguage.split(',')[0].trim().split('-');
-    if (parts.length > 1) return parts[1].toUpperCase();
+    const region = parts.length > 1 ? normalizeCountry(parts[1]) : null;
+    if (region) return region;
   }
   return 'US';
 }
@@ -63,10 +82,18 @@ export const GET = defineRoute(
       }
 
       if (productIds || productId) {
-        const ids = productIds
+        const requested = productIds
           ? productIds.split(',').map((id) => id.trim()).filter(Boolean)
           : [productId as string];
-        const views = await Promise.all(ids.map((id) => read.getByRef(id, priceQuery).catch(() => null)));
+        const ids = [...new Set(requested)].slice(0, MAX_PRODUCT_IDS);
+        if (requested.length > ids.length) {
+          // Logged, never silent: a truncated result would otherwise read as "all unavailable".
+          logger.warn('Truncated productIds fan-out', { requested: requested.length, dispatched: ids.length });
+        }
+        const gate = pLimit(PRODUCT_LOOKUP_CONCURRENCY);
+        const views = await Promise.all(
+          ids.map((id) => gate(() => read.getByRef(id, priceQuery).catch(() => null))),
+        );
         return {
           products: views.filter((v): v is NonNullable<typeof v> => v !== null).map(toDto),
           regionId,

@@ -11,11 +11,18 @@ export interface JobRow {
   maxAttempts: number;
 }
 
+export interface ClaimedJob {
+  id: string;
+  tenantId: string;
+}
+
 export interface JobRepositoryPort {
   findByIdempotency(tenantId: string, kind: string, key: string): Promise<{ jobId: string; status: string } | null>;
   insertPending(row: JobRow): Promise<{ jobId: string }>;
   requeue(jobId: string, runAfter: Date): Promise<void>; // reset a terminal job back to PENDING
-  claimBatch(now: Date, limit: number, leaseMs: number): Promise<string[]>; // returns claimed job ids
+  // Returns each claimed job WITH its tenant: the claim is cross-tenant, so the caller must
+  // execute the job inside its own tenant or the tenant-scoped load resolves to null.
+  claimBatch(now: Date, limit: number, leaseMs: number): Promise<ClaimedJob[]>;
 }
 
 export interface JobHandlerRegistryPort {
