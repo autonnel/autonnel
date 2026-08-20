@@ -1,4 +1,4 @@
-import { getCache, CACHE_TTL } from '@/lib/adapters/cache';
+import { cacheGetOrSet, withJitter } from '@/lib/adapters/cache';
 import { getPermissionRepository } from './repository';
 import {
   getPermissionAdminIds,
@@ -12,6 +12,7 @@ import {
   buildUserFeaturesCacheKey,
   invalidateUserRolesCache,
   invalidateAllPermissionCaches,
+  PERMISSION_CACHE_TTL,
 } from './cache';
 
 export { invalidateUserRolesCache, invalidateAllPermissionCaches };
@@ -19,24 +20,12 @@ export { invalidateUserRolesCache, invalidateAllPermissionCaches };
 const ALL_FEATURES: FeatureId[] = Object.values(FEATURES) as FeatureId[];
 
 export async function getUserRoles(userId: string): Promise<string[]> {
-  const cache = getCache();
-  const cacheKey = buildUserRolesCacheKey(userId);
-
-  const cached = await cache.get<string[]>(cacheKey);
-  if (cached !== null) return cached;
-
-  const repo = getPermissionRepository();
-  // isAdmin shortcuts the entire role/feature lookup; required for built-in admin.
-  if (await repo.isUserAdmin(userId)) {
-    const roles = [VIRTUAL_ADMIN_ROLE_NAME];
-    await cache.set(cacheKey, roles, CACHE_TTL.SHORT);
-    return roles;
-  }
-
-  const roles = await repo.getUserRoleNames(userId);
-  await cache.set(cacheKey, roles, CACHE_TTL.SHORT);
-
-  return roles;
+  return cacheGetOrSet(buildUserRolesCacheKey(userId), withJitter(PERMISSION_CACHE_TTL), async () => {
+    const repo = getPermissionRepository();
+    // isAdmin shortcuts the entire role/feature lookup; required for built-in admin.
+    if (await repo.isUserAdmin(userId)) return [VIRTUAL_ADMIN_ROLE_NAME];
+    return repo.getUserRoleNames(userId);
+  });
 }
 
 async function loadFeaturesForRoleNames(roleNames: string[]): Promise<Set<FeatureId>> {
@@ -53,24 +42,13 @@ async function loadFeaturesForRoleNames(roleNames: string[]): Promise<Set<Featur
 }
 
 export async function getUserFeatures(userId: string): Promise<FeatureId[]> {
-  const cache = getCache();
-  const cacheKey = buildUserFeaturesCacheKey(userId);
+  return cacheGetOrSet(buildUserFeaturesCacheKey(userId), withJitter(PERMISSION_CACHE_TTL), async () => {
+    const repo = getPermissionRepository();
+    if (await repo.isUserAdmin(userId)) return ALL_FEATURES;
 
-  const cached = await cache.get<FeatureId[]>(cacheKey);
-  if (cached !== null) return cached;
-
-  const repo = getPermissionRepository();
-  if (await repo.isUserAdmin(userId)) {
-    await cache.set(cacheKey, ALL_FEATURES, CACHE_TTL.SHORT);
-    return ALL_FEATURES;
-  }
-
-  const dbRoles = await repo.getUserRoleNames(userId);
-  const featureSet = await loadFeaturesForRoleNames(dbRoles);
-  const features = Array.from(featureSet);
-
-  await cache.set(cacheKey, features, CACHE_TTL.SHORT);
-  return features;
+    const dbRoles = await repo.getUserRoleNames(userId);
+    return Array.from(await loadFeaturesForRoleNames(dbRoles));
+  });
 }
 
 export async function userHasFeature(

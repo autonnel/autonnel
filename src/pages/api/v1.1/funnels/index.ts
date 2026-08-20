@@ -3,6 +3,7 @@ import { requireFeature } from '@/modules/identity/published/principal';
 import { withApiPrincipal } from '@/composition/external-auth';
 import { authoringDepsFromLocals } from '@/composition/authoring-runtime';
 import { createLogger } from '@/lib/logger';
+import { toolRoute } from '@/composition/mcp/rest-bridge';
 
 const logger = createLogger('ExternalFunnelsRoute');
 
@@ -27,3 +28,5 @@ export const GET: APIRoute = (context) =>
       return new Response(JSON.stringify({ error: 'Failed to list published funnels' }), { status: 500 });
     }
   });
+
+export const POST = toolRoute('create_funnel', { status: 201 });

@@ -24,7 +24,8 @@ export class ApiKeyService {
   async list(): Promise<ApiKeySummary[]> {
     const now = this.clock.now();
     const all = await this.apiKeys.listByTenant();
-    return all.map((c) => ({
+    // Revocation is a soft delete; revoked rows stay for auth lookups but must not surface as live keys.
+    return all.filter((c) => c.status !== ApiKeyStatus.Revoked).map((c) => ({
       id: c.id,
       name: c.name,
       prefix: c.prefix,

@@ -8,6 +8,10 @@ export interface StreamLine {
   text: string;
   tone: 'ok' | 'bad' | 'muted' | 'highlight';
   payload: string;
+  // Funnel feed only: short visitor badge + its color, and dwell time on page_leave rows.
+  visitor?: string | null;
+  visitorColor?: string | null;
+  duration?: string | null;
 }
 
 export interface ActivitySseOptions {
@@ -74,7 +78,15 @@ export function activitySseResponse(opts: ActivitySseOptions): Response {
           }
           if (lines.length > 0) {
             for (const line of lines) {
-              const data = JSON.stringify({ id: line.id, ts: line.ts, text: line.text, tone: line.tone, payload: line.payload });
+              const data = JSON.stringify({
+                id: line.id,
+                ts: line.ts,
+                text: line.text,
+                tone: line.tone,
+                payload: line.payload,
+                ...(line.visitor ? { visitor: line.visitor, visitorColor: line.visitorColor } : {}),
+                ...(line.duration ? { duration: line.duration } : {}),
+              });
               enqueue(`id: ${line.id}\nevent: activity\ndata: ${data}\n\n`);
               cursor = line.id;
             }

@@ -4,6 +4,7 @@ import type {
   OrderEmailMonitorPage,
   OrderEmailView,
 } from "../../application/order-dashboard-read-model";
+import { dbAll } from "@/lib/db";
 
 interface DispatchRow {
   id: string;
@@ -41,14 +42,15 @@ export class PrismaOrderEmailReadAdapter
 
   async list(input: { page: number; limit: number }): Promise<OrderEmailMonitorPage> {
     const where = { idempotencyKey: { startsWith: "order:" } };
-    const [total, rows] = await Promise.all([
-      this.db.dispatch.count({ where }),
-      this.db.dispatch.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip: (input.page - 1) * input.limit,
-        take: input.limit,
-      }),
+    const [total, rows] = await dbAll([
+      () => this.db.dispatch.count({ where }),
+      () =>
+        this.db.dispatch.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (input.page - 1) * input.limit,
+          take: input.limit,
+        }),
     ]);
     return {
       emails: rows.map(toView),

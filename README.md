@@ -67,16 +67,16 @@ Longer, and more honest about where the hosted platforms win:
 ## Table of contents
 
 - [Run it (about 2 minutes)](#run-it-about-2-minutes)
-- [Use it as an Astro integration](#use-it-as-an-astro-integration)
+- [Run it from source](#run-it-from-source)
 - [Configuration](#configuration)
 - [Deploy to Cloudflare Workers](#deploy-to-cloudflare-workers)
 - [CLI](#cli)
 - [Supported providers](#supported-providers)
 - [License](#license)
 
-Autonnel ships two ways: as a **self-hostable application** (Docker image, below)
-and as an **Astro integration** (npm package) you can drop into an existing Astro
-project.
+Autonnel is a self-hostable application. Run the Docker image (below) if you just
+want the product, or clone the repository if you intend to modify Autonnel itself
+and deploy it to Node or Cloudflare Workers.
 
 ## Run it (about 2 minutes)
 
@@ -147,66 +147,50 @@ docker run --rm ghcr.io/autonnel/autonnel:latest \
 The image does not ship `prisma.config.ts`, so Prisma reads the datasource from
 `--url` rather than from `DATABASE_URL`.
 
-## Use it as an Astro integration
+## Run it from source
 
-If you already have an Astro project, install the package and register the
-integration:
+Use this path when you intend to modify Autonnel itself, or want to deploy to
+Cloudflare Workers. Requires Node 22+ and a PostgreSQL database.
 
 ```bash
-npm install autonnel @astrojs/node @prisma/client prisma
+npm create autonnel@latest my-funnel   # clones this repository, drops git history
+cd my-funnel
+cp .env.example .env                   # set DATABASE_URL and ADMIN_DOMAIN
+pnpm install                           # this repository is pnpm-managed
+npm run db:push
+npm run dev
 ```
 
-```js
-// astro.config.mjs
-import { defineConfig } from 'astro/config';
-import autonnel from 'autonnel';
-import node from '@astrojs/node';
+The repository ships `pnpm-lock.yaml` and pins dependency overrides in
+`pnpm-workspace.yaml`, so install with pnpm 10+. `npm install` resolves a
+different tree and ignores those pins.
 
-export default defineConfig({
-  output: 'server',
-  adapter: node({ mode: 'standalone' }),
-  integrations: [autonnel()],
-});
-```
-
-The package's `prisma/schema.prisma` must be reachable by your project's Prisma
-client. The recommended pattern is a `prisma.config.ts` pointing `schema` at
-`node_modules/autonnel/prisma/schema.prisma`. Then `npm run db:push` and start
-your dev server. Full walkthrough: [Manual integration](https://autonnel.com/docs/getting-started/manual-integration).
-
-`npm create autonnel@latest my-funnel` is also available. It clones this
-repository into `my-funnel` as a starting point, which is useful if you intend to
-modify Autonnel itself. For running Autonnel as a product, prefer the Docker path
-above; for embedding it in your own app, prefer the integration.
+For running Autonnel as a product, prefer the Docker path above: it needs no Node
+toolchain and no external database.
 
 ## Configuration
 
-```ts
-import autonnel from 'autonnel';
+Autonnel reads two kinds of configuration. Environment holds only operational
+settings; everything else lives in the admin UI and is stored in the database.
 
-autonnel({
-  paymentProviders: ['paypal', 'stripe'],
-  emailProvider: 'resend',
-  ecommerceAdapter: 'shopify',
-  hooks: {
-    onOrderCreated: async (ctx, order) => {
-      // ship to your downstream system
-    },
-  },
-});
+```bash
+DATABASE_URL="postgresql://user:password@host:5432/db"  # required
+ADMIN_DOMAIN="admin.example.com"      # hostnames serving the admin UI
+AUTH_SESSION_SECRET="..."             # required in production, openssl rand -hex 32
+CREDENTIALS_ENCRYPTION_KEY="..."      # required in production, openssl rand -base64 32
+CRON_KEY="..."                        # optional, protects the HTTP cron endpoints
+LOG_LEVEL=info                        # optional: debug | info | warn | error
+DEFAULT_CURRENCY=USD                  # optional storefront fallback
+REDIS_URL="redis://..."               # optional, Node only; Workers use KV
 ```
 
-### `AutonnelOptions`
+Payment providers, email transport, ecommerce adapter, S3 storage, LLM keys, ad
+platforms, branding and domains are all configured under **Settings** in the
+admin UI, per install. Full reference:
+[Configuration](https://autonnel.com/docs/getting-started/configuration).
 
-| Option             | Type                            | Description                                              |
-|--------------------|---------------------------------|----------------------------------------------------------|
-| `paymentProviders` | `('paypal' \| 'stripe')[]`      | Enabled payment providers                                |
-| `emailProvider`    | `'smtp' \| 'resend'`            | Outbound email transport                                 |
-| `ecommerceAdapter` | `'shopify' \| 'woocommerce'`    | Source of truth for products and orders                  |
-| `hooks`            | `Partial<Hooks>`                | Lifecycle hooks (`onOrderCreated`, `onSiteCreated`, ...) |
-
-Advanced extension points such as custom auth are available through plugins
-(e.g. `@autonnel/plugin-oauth2`).
+Custom auth and OAuth ad flows are available through plugins
+(e.g. `@autonnel/plugin-oauth2`, `@autonnel/plugin-ads`).
 
 ## Deploy to Cloudflare Workers
 
@@ -231,8 +215,8 @@ Also available: `npm run dev:cf` (dev server on the Workers runtime) and
 
 ## CLI
 
-Run these from inside a project that has `autonnel` installed (they use that
-project's `.env` and database):
+Run these from inside a source checkout (they use that project's `.env` and
+database):
 
 ```
 npx autonnel admin:create <email> <password>      Create (or grant) a full-access admin user

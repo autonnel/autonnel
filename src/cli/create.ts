@@ -48,6 +48,7 @@ export function runCreate(args: string[]): void {
   process.stdout.write(`\nDone! Next steps:\n\n`);
   process.stdout.write(`  cd ${projectName}\n`);
   process.stdout.write(`  cp .env.example .env    # fill in your credentials\n`);
-  process.stdout.write(`  npm install\n`);
+  process.stdout.write(`  pnpm install            # pnpm 10+; the repo pins overrides npm ignores\n`);
+  process.stdout.write(`  npm run db:push\n`);
   process.stdout.write(`  npm run dev\n\n`);
 }

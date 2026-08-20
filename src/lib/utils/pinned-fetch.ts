@@ -4,7 +4,11 @@
 // the Host header so certificate validation and virtual hosting still work.
 //
 // Node-only. `node:` specifiers are assembled at runtime so workerd's eager module-graph check
-// does not fail the build; `getPinnedFetch()` returns null there and callers fail closed.
+// does not fail the build, and `getPinnedFetch()` returns null on workerd so callers take their
+// own non-pinned path. Note nodejs_compat makes the imports themselves succeed on workerd, so the
+// runtime is ruled out explicitly rather than inferred from whether the modules load.
+
+import { isCloudflareRuntime } from '@/lib/runtime/env';
 
 export interface PinnedFetchInit {
   pinnedAddress: string;
@@ -42,6 +46,11 @@ function headersToObject(init?: HeadersInit): Record<string, string> {
 async function loadModules(): Promise<
   { http: NodeRequestModule; https: NodeRequestModule; toWeb: (s: unknown) => unknown } | null
 > {
+  // workerd's nodejs_compat DOES provide node:http/https, so importing them succeeds there and the
+  // probe below cannot tell the runtimes apart. But its ClientRequest rejects `options.lookup`,
+  // which is the whole point of this module, and it throws only once a request is dispatched -
+  // every safeFetch caller on Workers then fails at runtime. Rule the runtime out up front.
+  if (isCloudflareRuntime()) return null;
   try {
     const http = (await import('node:' + 'http')) as unknown as NodeRequestModule;
     const https = (await import('node:' + 'https')) as unknown as NodeRequestModule;

@@ -1,5 +1,5 @@
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
-import { getBasePrisma } from '@/lib/db';
+import { getBasePrisma, dbAll } from '@/lib/db';
 import { readEnv } from '@/lib/runtime/env';
 import {
   describeRuntime,
@@ -17,12 +17,12 @@ export async function loadSystemInfo(): Promise<SystemInfo> {
   const db = getTenantPrisma();
   const base = getBasePrisma();
 
-  const [pageCount, funnelCount, userCount, orderCount, dbCheck] = await Promise.all([
-    safe(db.page.count(), 0),
-    safe(db.funnel.count(), 0),
-    safe(base.user.count(), 0),
-    safe(db.order.count(), 0),
-    safe(base.$queryRawUnsafe<unknown[]>('SELECT 1').then(() => true), false),
+  const [pageCount, funnelCount, userCount, orderCount, dbCheck] = await dbAll([
+    () => safe(db.page.count(), 0),
+    () => safe(db.funnel.count(), 0),
+    () => safe(base.user.count(), 0),
+    () => safe(db.order.count(), 0),
+    (): Promise<boolean> => safe(base.$queryRawUnsafe<unknown[]>('SELECT 1').then(() => true), false),
   ]);
 
   const isCf = typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers';
@@ -61,6 +61,7 @@ export interface ApiKeyRow {
 export async function loadApiKeysForUser(_userId: string): Promise<ApiKeyRow[]> {
   const rows = await safe(
     getTenantPrisma().apiKey.findMany({
+      where: { status: { not: 'revoked' } },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,

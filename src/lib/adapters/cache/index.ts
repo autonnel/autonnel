@@ -33,6 +33,58 @@ export function setCache(adapter: CacheAdapter): void {
   cacheAdapter = adapter;
 }
 
+// In-flight loads, keyed by cache key. Isolates outlive requests, so this
+// survives between them.
+const inflight = new Map<string, Promise<unknown>>();
+
+/**
+ * Read-through cache with per-key single-flight.
+ *
+ * The plain `get` → miss → `load` → `set` shape writes far more than it looks
+ * like it does on Cloudflare KV: reads are served from a ~60s edge cache, so
+ * after an entry expires the key keeps reading as absent long after the first
+ * write lands. Every request arriving in that window re-runs `load` (a DB
+ * round-trip) and re-writes the same value. On the per-request auth paths that
+ * turned one logical refresh into dozens of KV writes.
+ *
+ * Collapsing concurrent misses to a single load costs nothing in staleness:
+ * the shared promise resolves in milliseconds, and nothing is cached in memory
+ * beyond it. Invalidation semantics are unchanged — an explicit `delete` still
+ * takes effect as soon as it propagates.
+ */
+export async function cacheGetOrSet<T>(
+  key: string,
+  ttlSeconds: number,
+  load: () => Promise<T>,
+): Promise<T> {
+  const cache = getCache();
+
+  const cached = await cache.get<T>(key);
+  if (cached !== null) return cached;
+
+  const existing = inflight.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const value = await load();
+    // null/undefined is indistinguishable from a miss on the next read, so
+    // caching it would be a no-op at best. Skipping the write also keeps a
+    // scanner probing bogus keys from filling the namespace.
+    if (value !== null && value !== undefined) {
+      await cache.set(key, value, ttlSeconds);
+    }
+    return value;
+  })();
+  inflight.set(key, promise);
+  // Clear on settle (including rejection) so a failed load is retried by the
+  // next request instead of being pinned for the rest of the isolate's life.
+  void promise.catch(() => {}).then(() => {
+    if (inflight.get(key) === promise) inflight.delete(key);
+  });
+
+  return promise;
+}
+
 const CACHE_TTL = {
   PAGE: 24 * 60 * 60,
   REDIRECT: 12 * 60 * 60,

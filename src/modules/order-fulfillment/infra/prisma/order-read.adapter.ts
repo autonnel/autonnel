@@ -8,6 +8,7 @@ import type {
   OrderRefundView,
 } from "../../application/order-dashboard-read-model";
 import type { OrderRow } from "./order-mapper";
+import { dbAll } from "@/lib/db";
 
 // tenantId is auto-injected by the Prisma extension; where-clauses here are tenant-implicit.
 interface OrderDelegate {
@@ -42,14 +43,15 @@ export class PrismaOrderReadAdapter implements OrderReadPort {
     limit: number;
   }): Promise<OrderListPage> {
     const where = buildWhere(input.filters);
-    const [total, rows] = await Promise.all([
-      this.db.order.count({ where }),
-      this.db.order.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip: (input.page - 1) * input.limit,
-        take: input.limit,
-      }),
+    const [total, rows] = await dbAll([
+      () => this.db.order.count({ where }),
+      () =>
+        this.db.order.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (input.page - 1) * input.limit,
+          take: input.limit,
+        }),
     ]);
     return {
       items: rows.map(toListItem),

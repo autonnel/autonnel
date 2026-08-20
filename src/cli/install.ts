@@ -145,7 +145,7 @@ export async function runInstallWith(args: string[], deps: RunInstallDeps): Prom
   if (!installedVersion) {
     rmSync(destDir, { recursive: true, force: true });
     log('Could not resolve the installed autonnel version (node_modules/autonnel/package.json).');
-    log('Run `npm install` in this project first, then retry.');
+    log('Run `pnpm install` in this project first, then retry.');
     return false;
   }
 
@@ -177,7 +177,7 @@ export async function runInstallWith(args: string[], deps: RunInstallDeps): Prom
     log(`Edit: ${configs[0]}`);
     log('');
   }
-  log('Next: npm install && npm run build');
+  log('Next: pnpm install && npm run build');
   return true;
 }
 

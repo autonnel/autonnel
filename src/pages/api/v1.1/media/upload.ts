@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
-import { withApiPrincipal } from '@/composition/external-auth';
+import { requireFeature } from '@/modules/identity/published/principal';
+import { withApiPrincipal, requireWriteAccess } from '@/composition/external-auth';
 import { makeAiMediaUpload } from '@/composition/make-ai-media-deps';
+import { StorageNotConfiguredError } from '@/lib/s3';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('ExternalMediaUploadRoute');
@@ -9,9 +11,8 @@ const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gi
 
 export const POST: APIRoute = (context) =>
   withApiPrincipal(context, async (principal) => {
-    if (!principal.writeAccess) {
-      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
-    }
+    requireFeature('PAGES');
+    requireWriteAccess(principal);
     const form = await context.request.formData();
     const file = form.get('file');
     if (!(file instanceof File)) return new Response(JSON.stringify({ error: 'file required' }), { status: 400 });
@@ -25,6 +26,12 @@ export const POST: APIRoute = (context) =>
       });
       return new Response(JSON.stringify({ assetId, url }), { status: 201, headers: { 'content-type': 'application/json' } });
     } catch (err) {
+      if (err instanceof StorageNotConfiguredError) {
+        return new Response(JSON.stringify({ error: err.message, code: err.code }), {
+          status: 412,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       logger.error('external upload failed', { error: err });
       return new Response(JSON.stringify({ error: 'internal_error' }), { status: 500 });
     }

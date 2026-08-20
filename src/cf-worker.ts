@@ -14,6 +14,8 @@ import { runPaymentReconcileSweep } from "./modules/payments/application/reconci
 import { runDeferredCaptureSweep } from "./modules/payments/application/capture-deferred-cron";
 import { runStripeMergedHandoffSweep } from "./composition/make-upsell";
 import { runMessagingRetrySweep } from "./composition/make-messaging";
+import { makeAcquisitionAds } from "./composition/make-acquisition-ads";
+import { createAdsDepsForRequest } from "./composition/make-ads-deps";
 import { registerRecallCron } from "./modules/recall/infra/cron/process-due-touches.cron";
 import { makeRecall } from "./composition/make-recall";
 import { createRecallDepsForCron } from "./composition/make-recall-deps";
@@ -50,6 +52,15 @@ export async function runScheduled(env: Record<string, unknown>): Promise<void> 
     await runSweep("ecommerce.push-retry", async () => {
       const swept = await runStripeMergedHandoffSweep();
       if (swept.pushed || swept.failed) log.info("ecommerce.merged-push swept", swept);
+    });
+
+    // Retryable conversion postbacks: re-enqueue the due PENDING ones so the poll below dispatches
+    // them in this same tick. Without this sweep the ONLY driver is the HTTP /api/cron/postbacks
+    // endpoint, so a Cloudflare deployment with no external scheduler never retries a postback.
+    await runSweep("ads.postback", async () => {
+      const ads = await makeAcquisitionAds(await createAdsDepsForRequest());
+      const swept = await ads.retrySweep.retrySweep({ limit: 100 });
+      if (swept.processed) log.info("ads.postback swept", swept);
     });
 
     // The job poll fans out across multiple catalog jobs (ads.postback / ecommerce / media image),

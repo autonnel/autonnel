@@ -119,6 +119,7 @@
     "paypal",
     "shopify",
     "woocommerce",
+    "astro-integration",
     "resend"
   ],
   "scripts": {
@@ -146,6 +147,7 @@
     "@astrojs/cloudflare": "^13.7.0",
     "@astrojs/node": "^10.1.4",
     "@astrojs/react": "^5.0.7",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@monaco-editor/react": "^4.7.0",
     "@prisma/adapter-pg": "^7.1.0",
     "@prisma/client": "^7.1.0",
@@ -188,11 +190,10 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",
     "uuid": "^13.0.0",
-    "zod": "^4.1.5"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
-    "astro": "^6.4.8",
     "@cloudflare/workers-types": "^4.20260702.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
@@ -203,6 +204,7 @@
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "astro": "^6.4.8",
     "jsdom": "^29.1.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",

@@ -239,7 +239,7 @@ const diagram = data.diagram;
                 <div class="flex gap-3 items-baseline" data-feed-row>
                   <span class="text-[#9CA3AF] tabular shrink-0">{formatHms(a.ts)}</span>
                   <span class="min-w-0 break-words">
-                    {a.text} · <span style={`color: ${tokenColor(a.tone)};`}>{a.payload}</span>
+                    {a.visitor && <span style={`color: ${a.visitorColor};`}>{a.visitor}</span>}{a.visitor ? ' ' : ''}{a.text} · <span style={`color: ${tokenColor(a.tone)};`}>{a.payload}</span>{a.duration && <span class="text-[#9CA3AF]"> · {a.duration}</span>}
                   </span>
                 </div>
               ))

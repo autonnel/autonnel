@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireFeature } from '@/modules/identity/published/principal';
 import { makeAiMediaUpload } from '@/composition/make-ai-media-deps';
+import { StorageNotConfiguredError } from '@/lib/s3';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('MediaUploadBase64Route');
@@ -32,6 +33,12 @@ export const POST: APIRoute = async (ctx) => {
     }
     return new Response(JSON.stringify({ images: results }), { status: 200, headers: { 'content-type': 'application/json' } });
   } catch (err) {
+    if (err instanceof StorageNotConfiguredError) {
+      return new Response(JSON.stringify({ error: err.message, code: err.code }), {
+        status: 412,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
     logger.error('base64 upload failed', { error: err });
     return new Response(JSON.stringify({ error: 'internal_error' }), { status: 500 });
   }

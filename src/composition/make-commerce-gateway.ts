@@ -57,9 +57,16 @@ export function assembleStorefrontCatalogReadPort(deps: {
   return new ReadStorefrontCatalogService(deps.store);
 }
 
+export class CommerceNotConfiguredError extends Error {
+  constructor() {
+    super("commerce backend not configured");
+    this.name = "CommerceNotConfiguredError";
+  }
+}
+
 async function loadAdapters(country?: string) {
   const creds = await new AppConfigBackendCredentials().load();
-  if (!creds || !creds.isActive) throw new Error("commerce backend not configured");
+  if (!creds || !creds.isActive) throw new CommerceNotConfiguredError();
   return resolveBackendAdapters(creds.backendKind, creds, country);
 }
 

@@ -54,7 +54,7 @@ export const GET: APIRoute = async (context) => {
         where: { tenantId, funnelId, occurredAt: { gte: new Date(cursor.ts) } },
         orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
         take: 60,
-        select: { id: true, kind: true, stepId: true, pageId: true, url: true, metadata: true, occurredAt: true },
+        select: { id: true, kind: true, visitorId: true, stepId: true, pageId: true, url: true, metadata: true, occurredAt: true },
       })) as FunnelActivityRow[];
 
       const fresh = rows.filter((r) => {
@@ -77,7 +77,16 @@ export const GET: APIRoute = async (context) => {
       return fresh.map((r) => {
         const entry = formatActivityEntry({ ...r, pageSlug: r.pageId ? slugCache.get(r.pageId) ?? null : null });
         const ts = r.occurredAt.getTime();
-        return { id: `${ts}:${r.id}`, ts, text: entry.text, tone: entry.tone, payload: entry.payload };
+        return {
+          id: `${ts}:${r.id}`,
+          ts,
+          text: entry.text,
+          tone: entry.tone,
+          payload: entry.payload,
+          visitor: entry.visitor,
+          visitorColor: entry.visitorColor,
+          duration: entry.duration,
+        };
       });
     } finally {
       await client.$disconnect().catch(() => {});

@@ -9,6 +9,9 @@ interface ActivityPayload {
   text: string;
   tone: 'ok' | 'bad' | 'muted' | 'highlight';
   payload: string;
+  visitor?: string | null;
+  visitorColor?: string | null;
+  duration?: string | null;
 }
 
 const TONE_COLOR: Record<string, string> = {
@@ -34,12 +37,28 @@ function buildRow(item: ActivityPayload): HTMLDivElement {
 
   const body = document.createElement('span');
   body.className = 'min-w-0 break-words';
+
+  if (item.visitor) {
+    const visitor = document.createElement('span');
+    visitor.style.color = item.visitorColor || TONE_COLOR.muted;
+    visitor.textContent = item.visitor;
+    body.appendChild(visitor);
+    body.appendChild(document.createTextNode(' '));
+  }
+
   body.appendChild(document.createTextNode(`${item.text} · `));
 
   const payload = document.createElement('span');
   payload.style.color = TONE_COLOR[item.tone] ?? TONE_COLOR.muted;
   payload.textContent = item.payload;
   body.appendChild(payload);
+
+  if (item.duration) {
+    const duration = document.createElement('span');
+    duration.className = 'text-[#9CA3AF]';
+    duration.textContent = ` · ${item.duration}`;
+    body.appendChild(duration);
+  }
 
   row.appendChild(time);
   row.appendChild(body);

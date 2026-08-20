@@ -81,9 +81,12 @@ describe("runSweep — interval gating", () => {
     } as never;
   }
 
+  let cache: CacheAdapter;
+
   beforeEach(() => {
     store.clear();
-    setCache(intervalCache());
+    cache = intervalCache();
+    setCache(cache);
   });
 
   it("runs the first time and suppresses an immediate second tick", async () => {
@@ -125,5 +128,44 @@ describe("runSweep — interval gating", () => {
     expect(await runSweep("not.in.catalog", fn)).toBe("ok");
     expect(await runSweep("not.in.catalog", fn)).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  // The reason the interval gate moved ahead of the lock: acquireLock is a KV write and
+  // releaseLock a KV delete, and the `*/5` trigger fires every job on every tick.
+  it("never touches the lock on a tick the interval gate skips", async () => {
+    const fn = vi.fn(async () => "ok");
+    await runSweep("commerce.catalog-sync", fn);
+    vi.mocked(cache.acquireLock).mockClear();
+    vi.mocked(cache.releaseLock).mockClear();
+
+    expect(await runSweep("commerce.catalog-sync", fn)).toBeUndefined();
+
+    expect(cache.acquireLock).not.toHaveBeenCalled();
+    expect(cache.releaseLock).not.toHaveBeenCalled();
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-checks under the lock, so a tick that cleared a stale pre-gate still backs off", async () => {
+    let reads = 0;
+    const racy = {
+      // The pre-gate read sees no marker; by the time this tick holds the lock, a
+      // concurrent one has already stamped it.
+      get: vi.fn(async () => (++reads === 1 ? null : Date.now())),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      deletePattern: vi.fn(async () => {}),
+      has: vi.fn(async () => false),
+      acquireLock: vi.fn(async () => true),
+      releaseLock: vi.fn(async () => {}),
+    } as never as CacheAdapter;
+    setCache(racy);
+
+    const fn = vi.fn(async () => "ok");
+    expect(await runSweep("commerce.catalog-sync", fn)).toBeUndefined();
+
+    expect(fn).not.toHaveBeenCalled();
+    expect(racy.set).not.toHaveBeenCalled();
+    // The lock was taken, so it must still be released.
+    expect(racy.releaseLock).toHaveBeenCalledWith("cron:lock:commerce.catalog-sync");
   });
 });

@@ -1,9 +1,8 @@
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
 import { getBasePrisma } from '@/lib/db';
 import { OutboxEventPublisher } from '@/modules/platform/infra/outbox-event-publisher';
-import { getConfig } from '@/lib/config/get-config';
 import { getStorageContext } from '@/lib/config/storage';
-import { getSiteStaticUrl } from '@/lib/s3';
+import { getSiteStaticUrl, StorageNotConfiguredError } from '@/lib/s3';
 import { NormalizeAndStoreService } from '@/modules/ai-media/application/normalize-and-store-service';
 import { R2ObjectStorageAdapter } from '@/modules/ai-media/infra/storage/r2-object-storage-adapter';
 import { PrismaMediaAssetRepository } from '@/modules/ai-media/infra/prisma/prisma-media-asset-repository';
@@ -13,21 +12,16 @@ import { getCurrentTenantId } from '@/lib/tenant/context';
 import type { R2Config } from '@/modules/ai-media/infra/storage/r2-object-storage-adapter';
 import type { EventPublisherPort } from '@/modules/ai-media/application/ports/outbound';
 
-interface S3KvConfig {
-  endpoint?: string;
-  bucket?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-}
-
+// Fails here rather than letting blank credentials reach the PUT, where the failure reads as a
+// generic upload fault instead of "storage was never configured".
 async function resolveR2(): Promise<R2Config> {
-  const s3 = (await getConfig<S3KvConfig>('storage.s3')) ?? {};
   const ctx = await getStorageContext();
+  if (!ctx.s3Config) throw new StorageNotConfiguredError();
   return {
-    endpoint: s3.endpoint ?? '',
-    bucket: s3.bucket ?? '',
-    accessKeyId: s3.accessKeyId ?? '',
-    secretAccessKey: s3.secretAccessKey ?? '',
+    endpoint: ctx.s3Config.endpoint,
+    bucket: ctx.s3Config.bucket,
+    accessKeyId: ctx.s3Config.accessKeyId,
+    secretAccessKey: ctx.s3Config.secretAccessKey,
     publicBaseUrl: getSiteStaticUrl(ctx.staticDomain, ctx.primaryDomain),
   };
 }

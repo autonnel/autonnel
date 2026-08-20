@@ -35,19 +35,56 @@ function resolveConnectionString(): string {
   throw new Error("No database connection configured (HYPERDRIVE binding or DATABASE_URL)");
 }
 
+export function isHyperdrivePool(): boolean {
+  return !!getBinding<HyperdriveBinding>("HYPERDRIVE");
+}
+
+// Worker-side pg pool size against Hyperdrive. Shared by createClient's adapter config and
+// dbAll's concurrency cap so the two can never drift apart.
+export const HYPERDRIVE_POOL_SIZE = 5;
+
+// Callers pass thunks (not started promises) so we can cap how many run at once on Hyperdrive:
+// a fan-out wider than HYPERDRIVE_POOL_SIZE would otherwise starve itself, with the extra
+// thunks queuing on connectionTimeoutMillis until they time out. Off Hyperdrive (Node's
+// default 10-connection pool) there is no cap and every thunk runs concurrently.
+export async function dbAll<T extends readonly (() => Promise<unknown>)[]>(
+  tasks: [...T],
+): Promise<{ -readonly [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
+  if (!isHyperdrivePool()) {
+    return Promise.all(tasks.map((task) => task())) as Promise<{
+      -readonly [K in keyof T]: Awaited<ReturnType<T[K]>>;
+    }>;
+  }
+
+  const results: unknown[] = new Array(tasks.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      results[index] = await tasks[index]();
+    }
+  }
+  const workerCount = Math.min(HYPERDRIVE_POOL_SIZE, tasks.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results as { -readonly [K in keyof T]: Awaited<ReturnType<T[K]>> };
+}
+
 function createClient(): PrismaClient {
-  // On Workers each request opens its own client and Hyperdrive already pools
-  // server-side, so cap the worker-side pool at ONE connection. With the pg
-  // default (max 10, connectionTimeoutMillis 0) a render that fires concurrent
-  // queries makes pg open extra connections; acquiring them through Hyperdrive
-  // intermittently stalls and, waiting forever, the Worker is killed at ~30s —
-  // the intermittent page 500/timeouts. max:1 reuses the single connection
-  // (concurrent queries queue) and connectionTimeoutMillis fails fast instead of
-  // hanging. Node keeps the default pool (one long-lived client, many requests).
+  // pg's default pool (max 10, connectionTimeoutMillis 0) exceeds Workers' ~6-connection
+  // per-request limit on concurrent external connections: a render firing concurrent queries
+  // opened extra connections, acquiring them through Hyperdrive intermittently stalled, and
+  // waiting forever the Worker was killed at ~30s (the intermittent page 500/timeouts).
+  // max:5 is Cloudflare's own documented driver pool size for a Worker-side pg pool against
+  // Hyperdrive. connectionTimeoutMillis fails an acquire fast instead of hanging until the
+  // Worker is killed. Node keeps the default pool (one long-lived client, many requests).
   const onHyperdrive = !!getBinding<HyperdriveBinding>("HYPERDRIVE");
   const adapter = new PrismaPg(
     onHyperdrive
-      ? { connectionString: resolveConnectionString(), max: 1, connectionTimeoutMillis: 20000 }
+      ? {
+          connectionString: resolveConnectionString(),
+          max: HYPERDRIVE_POOL_SIZE,
+          connectionTimeoutMillis: 20000,
+        }
       : { connectionString: resolveConnectionString() },
   );
   return new PrismaClient({ adapter });

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { getBasePrisma } from '@/lib/db';
-import { getCache, CACHE_TTL } from '@/lib/adapters/cache';
+import { getCache, cacheGetOrSet, CACHE_TTL } from '@/lib/adapters/cache';
 import { getCurrentTenantId } from '@/lib/tenant/context';
 
 interface CachedApiKeyData {
@@ -64,37 +64,34 @@ export async function validateApiToken(authHeader: string | null): Promise<ApiTo
   }
 
   const keyHash = crypto.createHash('sha256').update(parsed.token).digest('hex');
-  const cacheKey = cacheKeyFor(keyHash);
-  const cache = getCache();
 
-  const cached = await cache.get<CachedApiKeyData>(cacheKey);
-  if (cached !== null) {
-    const scopeError = checkScope(cached.tenantId, cached.expiresAt);
-    return scopeError ? deny(scopeError) : allow(cached.userId, cached.writeAccess);
-  }
-
-  const record = await getBasePrisma().apiKey.findUnique({
-    where: { keyHash },
-    select: { id: true, status: true, tenantId: true, expiresAt: true, writeAccess: true },
-  });
-
-  if (!record || record.status !== 'active') {
-    return deny('Invalid token');
-  }
-
-  await cache.set<CachedApiKeyData>(
-    cacheKey,
-    {
-      userId: record.id,
-      tenantId: record.tenantId,
-      expiresAt: record.expiresAt ? record.expiresAt.toISOString() : null,
-      writeAccess: record.writeAccess,
-    },
+  // TTL stays CACHE_TTL.SHORT deliberately: nothing calls invalidateApiKeyCache,
+  // so expiry is the ONLY thing that revokes a disabled key. cacheGetOrSet only
+  // collapses concurrent misses onto one DB read + one KV write; it does not
+  // extend how long a stale entry survives. Returning null for an unknown or
+  // inactive key keeps it out of the cache, so scanners cannot fill KV.
+  const cached = await cacheGetOrSet<CachedApiKeyData | null>(
+    cacheKeyFor(keyHash),
     CACHE_TTL.SHORT,
+    async () => {
+      const record = await getBasePrisma().apiKey.findUnique({
+        where: { keyHash },
+        select: { id: true, status: true, tenantId: true, expiresAt: true, writeAccess: true },
+      });
+      if (!record || record.status !== 'active') return null;
+      return {
+        userId: record.id,
+        tenantId: record.tenantId,
+        expiresAt: record.expiresAt ? record.expiresAt.toISOString() : null,
+        writeAccess: record.writeAccess,
+      };
+    },
   );
 
-  const scopeError = checkScope(record.tenantId, record.expiresAt);
-  return scopeError ? deny(scopeError) : allow(record.id, record.writeAccess);
+  if (!cached) return deny('Invalid token');
+
+  const scopeError = checkScope(cached.tenantId, cached.expiresAt);
+  return scopeError ? deny(scopeError) : allow(cached.userId, cached.writeAccess);
 }
 
 export async function invalidateApiKeyCache(keyHash: string): Promise<void> {

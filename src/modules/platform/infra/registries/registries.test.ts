@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { z } from "zod";
 import { InProcessJobHandlerRegistry } from "./job-handler-registry";
 import { InProcessHookRegistry } from "./hook-registry";
 import { InProcessMcpServer } from "./mcp-server";
@@ -38,10 +39,39 @@ describe("InProcessHookRegistry (shell)", () => {
   });
 });
 
-describe("InProcessMcpServer (shell)", () => {
+describe("InProcessMcpServer", () => {
+  const descriptor = {
+    name: "list_orders",
+    title: "List orders",
+    description: "x",
+    requiredFeature: "ORDERS",
+    writeAccess: false,
+    inputSchema: z.object({ page: z.number().optional() }),
+  };
+
   it("lists registered tool descriptors", () => {
     const s = new InProcessMcpServer();
-    s.registerTool({ name: "list_orders", description: "x", requiredFeature: "ORDERS" }, async () => ({}));
+    s.registerTool(descriptor, async () => ({}));
     expect(s.listTools().map((t) => t.name)).toContain("list_orders");
+  });
+
+  it("find() returns the descriptor and the invoker together", async () => {
+    const s = new InProcessMcpServer();
+    const invoke = async () => ({ ok: true });
+    s.registerTool(descriptor, invoke);
+    const found = s.find("list_orders");
+    expect(found?.descriptor.requiredFeature).toBe("ORDERS");
+    expect(found?.descriptor.writeAccess).toBe(false);
+    expect(await found?.invoke({})).toEqual({ ok: true });
+  });
+
+  it("find() returns undefined for an unregistered name", () => {
+    expect(new InProcessMcpServer().find("nope")).toBeUndefined();
+  });
+
+  it("rejects duplicate tool registration", () => {
+    const s = new InProcessMcpServer();
+    s.registerTool(descriptor, async () => ({}));
+    expect(() => s.registerTool(descriptor, async () => ({}))).toThrow(/already/i);
   });
 });

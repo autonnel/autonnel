@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
 import { getCurrentTenantId } from '@/lib/tenant/context';
 import { createLogger } from '@/lib/logger';
+import { dbAll } from '@/lib/db';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -60,47 +61,51 @@ export async function querySystemActivity(
   const windowStart = new Date(now.getTime() - windowMs);
   const take = Math.max(limit, 8);
 
-  const [recentOrdersCreated, recentRefunds, recentFailedCharges, recentFulfillments] = await Promise.all([
-    safe(
-      'orders_created',
-      db.order.findMany({
-        where: { tenantId, createdAt: { gte: windowStart } },
-        orderBy: { createdAt: 'desc' },
-        take,
-        select: { createdAt: true, orderNumber: true, status: true, capturedTotal: true, currencyCode: true },
-      }) as Promise<Array<{ createdAt: Date; orderNumber: string; status: string; capturedTotal: number; currencyCode: string }>>,
-      [],
-    ),
-    safe(
-      'refunds',
-      db.transaction.findMany({
-        where: { tenantId, type: 'REFUND', status: 'COMPLETED', createdAt: { gte: windowStart } },
-        orderBy: { createdAt: 'desc' },
-        take,
-        select: { createdAt: true, amountMinor: true, currencyCode: true, provider: true },
-      }) as Promise<Array<{ createdAt: Date; amountMinor: number; currencyCode: string; provider: string }>>,
-      [],
-    ),
-    safe(
-      'charges_failed',
-      db.transaction.findMany({
-        where: { tenantId, type: 'CHARGE', status: 'FAILED', createdAt: { gte: windowStart } },
-        orderBy: { createdAt: 'desc' },
-        take,
-        select: { createdAt: true, provider: true, amountMinor: true, currencyCode: true },
-      }) as Promise<Array<{ createdAt: Date; provider: string; amountMinor: number; currencyCode: string }>>,
-      [],
-    ),
-    safe(
-      'fulfillments',
-      db.order.findMany({
-        where: { tenantId, trackingNumber: { not: null }, updatedAt: { gte: windowStart } },
-        orderBy: { updatedAt: 'desc' },
-        take,
-        select: { updatedAt: true, orderNumber: true, trackingCarrier: true },
-      }) as Promise<Array<{ updatedAt: Date; orderNumber: string; trackingCarrier: string | null }>>,
-      [],
-    ),
+  const [recentOrdersCreated, recentRefunds, recentFailedCharges, recentFulfillments] = await dbAll([
+    () =>
+      safe(
+        'orders_created',
+        db.order.findMany({
+          where: { tenantId, createdAt: { gte: windowStart } },
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { createdAt: true, orderNumber: true, status: true, capturedTotal: true, currencyCode: true },
+        }) as Promise<Array<{ createdAt: Date; orderNumber: string; status: string; capturedTotal: number; currencyCode: string }>>,
+        [],
+      ),
+    () =>
+      safe(
+        'refunds',
+        db.transaction.findMany({
+          where: { tenantId, type: 'REFUND', status: 'COMPLETED', createdAt: { gte: windowStart } },
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { createdAt: true, amountMinor: true, currencyCode: true, provider: true },
+        }) as Promise<Array<{ createdAt: Date; amountMinor: number; currencyCode: string; provider: string }>>,
+        [],
+      ),
+    () =>
+      safe(
+        'charges_failed',
+        db.transaction.findMany({
+          where: { tenantId, type: 'CHARGE', status: 'FAILED', createdAt: { gte: windowStart } },
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { createdAt: true, provider: true, amountMinor: true, currencyCode: true },
+        }) as Promise<Array<{ createdAt: Date; provider: string; amountMinor: number; currencyCode: string }>>,
+        [],
+      ),
+    () =>
+      safe(
+        'fulfillments',
+        db.order.findMany({
+          where: { tenantId, trackingNumber: { not: null }, updatedAt: { gte: windowStart } },
+          orderBy: { updatedAt: 'desc' },
+          take,
+          select: { updatedAt: true, orderNumber: true, trackingCarrier: true },
+        }) as Promise<Array<{ updatedAt: Date; orderNumber: string; trackingCarrier: string | null }>>,
+        [],
+      ),
   ]);
 
   const activity: ActivityEntry[] = [];

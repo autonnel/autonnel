@@ -1,5 +1,6 @@
 
 import { DB_TO_FUNNEL_PAGE_TYPE } from '@/components/funnel/types';
+import { shortVisitorId, visitorColor, formatDwell } from './activity-visitor';
 
 export interface FunnelStepJson {
   stepSlug?: string;
@@ -320,6 +321,7 @@ export function buildStepDiagramFromCounts(
 
 export interface RawActivityRow {
   kind: string;
+  visitorId?: string | null;
   stepId: string | null;
   pageId: string | null;
   pageSlug?: string | null;
@@ -333,6 +335,9 @@ export interface ActivityLine {
   text: string;
   tone: 'ok' | 'bad' | 'muted' | 'highlight';
   payload: string;
+  visitor: string | null;
+  visitorColor: string | null;
+  duration: string | null;
 }
 
 const ACTIVITY_LABELS: Record<string, { text: string; tone: ActivityLine['tone'] }> = {
@@ -386,5 +391,14 @@ function activityPayload(row: RawActivityRow): string {
 
 export function formatActivityEntry(row: RawActivityRow): ActivityLine {
   const label = ACTIVITY_LABELS[row.kind] ?? { text: row.kind.replace(/_/g, ' '), tone: 'muted' as const };
-  return { ts: row.occurredAt, text: label.text, tone: label.tone, payload: activityPayload(row) };
+  const visitor = shortVisitorId(row.visitorId);
+  return {
+    ts: row.occurredAt,
+    text: label.text,
+    tone: label.tone,
+    payload: activityPayload(row),
+    visitor,
+    visitorColor: visitor ? visitorColor(visitor) : null,
+    duration: row.kind === 'page_leave' ? formatDwell(asRecord(row.metadata)?.timeOnPageMs) : null,
+  };
 }

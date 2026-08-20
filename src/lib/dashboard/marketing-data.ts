@@ -1,6 +1,7 @@
 import { makeAcquisitionAds } from '@/composition/make-acquisition-ads';
 import { createAdsDepsForRequest } from '@/composition/make-ads-deps';
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { dbAll } from '@/lib/db';
 import {
   aggregateMarketingKpi,
   type MarketingKpi,
@@ -120,14 +121,15 @@ export async function loadPostbacks(opts: {
     const perPage = Math.max(1, opts.perPage ?? 50);
     const where = opts.status ? { status: opts.status } : {};
 
-    const [records, total] = await Promise.all([
-      db.postback.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * perPage,
-        take: perPage,
-      }),
-      db.postback.count({ where }),
+    const [records, total] = await dbAll([
+      () =>
+        db.postback.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * perPage,
+          take: perPage,
+        }),
+      () => db.postback.count({ where }),
     ]);
 
     const destinationIds = Array.from(new Set(records.map((r) => r.destinationId)));

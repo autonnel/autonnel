@@ -4,6 +4,7 @@ import type {
   TransactionListItem,
   TransactionListPage,
 } from "../../application/transaction-query.service";
+import { dbAll } from "@/lib/db";
 
 interface TransactionRow {
   id: string;
@@ -36,14 +37,15 @@ export class PrismaTransactionReadAdapter implements TransactionReadPort {
     limit: number;
   }): Promise<TransactionListPage> {
     const where = buildWhere(input.filters);
-    const [total, rows] = await Promise.all([
-      this.db.transaction.count({ where }),
-      this.db.transaction.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip: (input.page - 1) * input.limit,
-        take: input.limit,
-      }),
+    const [total, rows] = await dbAll([
+      () => this.db.transaction.count({ where }),
+      () =>
+        this.db.transaction.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (input.page - 1) * input.limit,
+          take: input.limit,
+        }),
     ]);
     return {
       items: rows.map(toItem),

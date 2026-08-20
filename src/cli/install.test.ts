@@ -127,7 +127,7 @@ describe('runInstallWith integration (offline)', () => {
     const out = logs.join('\n');
     expect(out).toContain("import templateAtelier from '@autonnel/template-atelier';");
     expect(out).toContain('templateAtelier(),');
-    expect(out).toContain('npm install && npm run build');
+    expect(out).toContain('pnpm install && npm run build');
     expect(out).toContain('astro.config.mjs');
   });
 

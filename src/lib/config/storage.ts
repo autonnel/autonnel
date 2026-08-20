@@ -2,7 +2,7 @@ import type { SiteS3Config } from '@/lib/s3';
 import { StorageNotConfiguredError } from '@/lib/s3';
 import { getConfig } from './get-config';
 import { getDefaultCdnUrl } from './keys';
-import { getBasePrisma } from '@/lib/db';
+import { getBasePrisma, dbAll } from '@/lib/db';
 import { getCurrentTenantId, runWithTenant } from '@/lib/tenant/context';
 
 export interface StorageContext {
@@ -28,13 +28,14 @@ export async function requireS3Config(): Promise<SiteS3Config> {
 export async function getStorageContext(): Promise<StorageContext> {
   const prisma = getBasePrisma();
   const tenantId = getCurrentTenantId();
-  const [s3Config, staticDomain, primary] = await Promise.all([
-    getS3Config(),
-    getDefaultCdnUrl(),
-    prisma.domain.findFirst({
-      where: { tenantId, isPrimary: true },
-      select: { host: true },
-    }),
+  const [s3Config, staticDomain, primary] = await dbAll([
+    () => getS3Config(),
+    () => getDefaultCdnUrl(),
+    () =>
+      prisma.domain.findFirst({
+        where: { tenantId, isPrimary: true },
+        select: { host: true },
+      }),
   ]);
 
   return {
@@ -52,13 +53,15 @@ export async function getStorageContextByPage(pageId: string): Promise<StorageCo
     select: { tenantId: true },
   });
   if (!page) return null;
-  const [s3Config, staticDomain, primary] = await Promise.all([
-    runWithTenant(page.tenantId, () => getConfig<SiteS3Config>('storage.s3')).then((v) => v ?? null),
-    runWithTenant(page.tenantId, () => getDefaultCdnUrl()),
-    prisma.domain.findFirst({
-      where: { tenantId: page.tenantId, isPrimary: true },
-      select: { host: true },
-    }),
+  const [s3Config, staticDomain, primary] = await dbAll([
+    (): Promise<SiteS3Config | null> =>
+      runWithTenant(page.tenantId, () => getConfig<SiteS3Config>('storage.s3')).then((v) => v ?? null),
+    () => runWithTenant(page.tenantId, () => getDefaultCdnUrl()),
+    () =>
+      prisma.domain.findFirst({
+        where: { tenantId: page.tenantId, isPrimary: true },
+        select: { host: true },
+      }),
   ]);
 
   const validS3 =

@@ -30,8 +30,22 @@ const INTERVAL_TOLERANCE = 0.9;
 // other job's `*/5` trigger fired the handler. Both the lock and the marker are best-effort
 // (read-then-write on KV/memory, TTL-expiring).
 export async function runSweep<T>(name: string, fn: () => Promise<T>): Promise<T | undefined> {
-  const ttl = lockTtlByName.get(name);
   const cache = getCache();
+  const ttl = lockTtlByName.get(name);
+  const intervalMs = intervalByName.get(name);
+
+  // Cheap pre-gate, OUTSIDE the lock. acquireLock is a KV write and releaseLock a KV delete, so
+  // locking first made every job pay both on EVERY tick — including the overwhelming majority of
+  // ticks where the interval gate below then skipped it immediately. With `*/5` in the trigger
+  // list, a job declaring a 30-minute interval burned ~288 writes + ~288 deletes a day to do
+  // nothing; across the catalog that was this namespace's entire write volume.
+  // This gate is racy by construction and only filters the common case; the authoritative check
+  // still runs under the lock.
+  if (intervalMs && (await tooSoon(name, intervalMs))) {
+    log.info("cron sweep skipped (ran within its interval)", { sweep: name, intervalMs });
+    return undefined;
+  }
+
   let locked = false;
   if (ttl) {
     locked = await cache.acquireLock(lockKey(name), ttl);
@@ -41,12 +55,11 @@ export async function runSweep<T>(name: string, fn: () => Promise<T>): Promise<T
     }
   }
   try {
-    const intervalMs = intervalByName.get(name);
     if (intervalMs) {
-      const last = await cache.get<number>(lastRunKey(name));
-      const sinceMs = typeof last === "number" ? Date.now() - last : Number.POSITIVE_INFINITY;
-      if (sinceMs < intervalMs * INTERVAL_TOLERANCE) {
-        log.info("cron sweep skipped (ran within its interval)", { sweep: name, sinceMs, intervalMs });
+      // Authoritative re-check. Two ticks can both clear the pre-gate before either takes the
+      // lock; without this the loser would run a second time the moment the winner released it.
+      if (await tooSoon(name, intervalMs)) {
+        log.info("cron sweep skipped (ran within its interval)", { sweep: name, intervalMs });
         return undefined;
       }
       // Stamped BEFORE the run: a slow or failing sweep must not re-fire on every tick and
@@ -60,4 +73,10 @@ export async function runSweep<T>(name: string, fn: () => Promise<T>): Promise<T
   } finally {
     if (locked) await cache.releaseLock(lockKey(name));
   }
+}
+
+async function tooSoon(name: string, intervalMs: number): Promise<boolean> {
+  const last = await getCache().get<number>(lastRunKey(name));
+  const sinceMs = typeof last === "number" ? Date.now() - last : Number.POSITIVE_INFINITY;
+  return sinceMs < intervalMs * INTERVAL_TOLERANCE;
 }

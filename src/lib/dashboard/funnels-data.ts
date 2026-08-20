@@ -245,7 +245,7 @@ async function loadRecentActivity(funnelId: string, take: number): Promise<Activ
       where: { tenantId: getCurrentTenantId(), funnelId },
       orderBy: { occurredAt: 'desc' },
       take,
-      select: { kind: true, stepId: true, pageId: true, url: true, metadata: true, occurredAt: true },
+      select: { kind: true, visitorId: true, stepId: true, pageId: true, url: true, metadata: true, occurredAt: true },
     }) as Promise<RawActivityRow[]>,
     [],
   );

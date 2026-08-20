@@ -3,6 +3,13 @@ import type { Transition } from './value-objects/routing-rule';
 import type { PublishState } from './value-objects/publish-state';
 import type { PinnedPage } from './services/publication-assembler';
 
+export class FunnelStepError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FunnelStepError";
+  }
+}
+
 interface Step { stepSlug: string; pageId: string; }
 
 interface FunnelState {
@@ -43,7 +50,7 @@ export class Funnel {
 
   addStep(step: Step): DomainEvent[] {
     if (this.state.steps.some((s) => s.stepSlug === step.stepSlug)) {
-      throw new Error(`stepSlug must be unique within funnel: "${step.stepSlug}"`);
+      throw new FunnelStepError(`stepSlug must be unique within funnel: "${step.stepSlug}"`);
     }
     this.state.steps.push(step);
     return this.markStructureChanged();
@@ -54,7 +61,7 @@ export class Funnel {
   removeStep(pageId: string): DomainEvent[] {
     const remaining = this.state.steps.filter((s) => s.pageId !== pageId);
     if (remaining.length === this.state.steps.length) {
-      throw new Error(`No step references page: ${pageId}`);
+      throw new FunnelStepError(`No step references page: ${pageId}`);
     }
     this.state.steps = remaining;
     return this.markStructureChanged();
@@ -62,16 +69,16 @@ export class Funnel {
 
   replaceStepPage(input: { fromPageId: string; toPageId: string }): DomainEvent[] {
     const step = this.state.steps.find((s) => s.pageId === input.fromPageId);
-    if (!step) throw new Error(`No step references page: ${input.fromPageId}`);
+    if (!step) throw new FunnelStepError(`No step references page: ${input.fromPageId}`);
     step.pageId = input.toPageId;
     return this.markStructureChanged();
   }
 
   setStepSlug(input: { pageId: string; stepSlug: string }): DomainEvent[] {
     const step = this.state.steps.find((s) => s.pageId === input.pageId);
-    if (!step) throw new Error(`No step references page: ${input.pageId}`);
+    if (!step) throw new FunnelStepError(`No step references page: ${input.pageId}`);
     if (this.state.steps.some((s) => s !== step && s.stepSlug === input.stepSlug)) {
-      throw new Error(`stepSlug must be unique within funnel: "${input.stepSlug}"`);
+      throw new FunnelStepError(`stepSlug must be unique within funnel: "${input.stepSlug}"`);
     }
     step.stepSlug = input.stepSlug;
     return this.markStructureChanged();

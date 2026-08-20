@@ -3,6 +3,7 @@ import { requireFeature } from '@/modules/identity/published/principal';
 import { withApiPrincipal } from '@/composition/external-auth';
 import { authoringDepsFromLocals } from '@/composition/authoring-runtime';
 import { createLogger } from '@/lib/logger';
+import { toolRoute } from '@/composition/mcp/rest-bridge';
 
 const logger = createLogger('ExternalFunnelPagesRoute');
 
@@ -49,3 +50,9 @@ export const GET: APIRoute = (context) =>
       return new Response(JSON.stringify({ error: 'Failed to read funnel pages' }), { status: 500 });
     }
   });
+
+// Steps are keyed by the page they reference, so every verb takes pageId in the body.
+export const POST = toolRoute('add_funnel_page', { status: 201 });
+export const PUT = toolRoute('replace_funnel_page');
+export const PATCH = toolRoute('set_funnel_step_slug');
+export const DELETE = toolRoute('remove_funnel_page');

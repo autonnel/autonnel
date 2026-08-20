@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { requireFeature } from "@/modules/identity/published/principal";
 import { withApiPrincipal } from "@/composition/external-auth";
 import { makeCommerceGatewayReadSide } from "@/composition/make-commerce-gateway";
 import { createLogger } from "@/lib/logger";
@@ -7,6 +8,7 @@ const logger = createLogger("ExternalProductsRoute");
 
 export const GET: APIRoute = (context) =>
   withApiPrincipal(context, async () => {
+    requireFeature("PAGES");
     const term = context.url.searchParams.get("q") ?? "";
     const limit = Math.min(Number(context.url.searchParams.get("limit") ?? 50), 250);
     try {

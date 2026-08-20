@@ -1,4 +1,5 @@
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { dbAll } from '@/lib/db';
 import { bucketByHour, computeDelta, type DeltaResult, type AggregateInput } from './overview-helpers';
 import { loadSystemActivity, type ActivityEntry } from './system-activity';
 import {
@@ -107,53 +108,57 @@ export async function loadOverviewData(now: Date = new Date()): Promise<Overview
     funnelVisits,
     attributedOrders24,
     latestTrafficAt,
-  ] = await Promise.all([
-    safe(
-      db.order.findMany({
-        where: { createdAt: { gte: start48 } },
-        select: { createdAt: true, status: true, capturedTotal: true },
-      }) as Promise<OrderKpiRow[]>,
-      [],
-    ),
-    safe(
-      db.funnel.findMany({
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true, name: true, updatedAt: true },
-      }) as Promise<Array<{ id: string; name: string; updatedAt: Date }>>,
-      [],
-    ),
-    loadAdConnections(),
-    safe(
-      (async () => {
-        const { listPaymentProviders, getPaymentProviderEntryWithCredentials } =
-          await import('@/lib/config/payment');
-        const metas = await listPaymentProviders();
-        return Promise.all(
-          metas.map(async (m) => {
-            const withCreds = await getPaymentProviderEntryWithCredentials(m.provider);
-            return { id: m.id, name: m.name, provider: m.provider, isActive: m.isActive, credentials: withCreds?.credentials ?? null };
-          }),
-        );
-      })() as Promise<AggregateInput['paymentConfigs']>,
-      [] as AggregateInput['paymentConfigs'],
-    ),
-    safe(
-      (async () => {
-        const { getEmailKvConfigWithCredentials } = await import('@/lib/config/email');
-        const cfg = await getEmailKvConfigWithCredentials();
-        return cfg
-          ? [{ id: cfg.id, name: cfg.name, provider: cfg.provider, fromEmail: cfg.fromEmail, isActive: cfg.isActive, credentials: cfg.credentials }]
-          : [];
-      })() as Promise<AggregateInput['emailConfigs']>,
-      [] as AggregateInput['emailConfigs'],
-    ),
-    safe(loadSystemActivity(now, 5), [] as ActivityEntry[]),
-    safe(queryVisitorCount(null, start24, now, true), 0),
-    safe(queryVisitorCount(null, start48, start24, true), 0),
-    safe(queryVisitorSparkline(null, now, 24, true), new Array<number>(24).fill(0)),
-    safe(queryVisitorCountsByFunnel(start24, now), []),
-    safe(queryAttributedOrders(null, start24), []),
-    safe(queryLatestTrafficAt(), null),
+  ] = await dbAll([
+    () =>
+      safe(
+        db.order.findMany({
+          where: { createdAt: { gte: start48 } },
+          select: { createdAt: true, status: true, capturedTotal: true },
+        }) as Promise<OrderKpiRow[]>,
+        [],
+      ),
+    () =>
+      safe(
+        db.funnel.findMany({
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, name: true, updatedAt: true },
+        }) as Promise<Array<{ id: string; name: string; updatedAt: Date }>>,
+        [],
+      ),
+    () => loadAdConnections(),
+    () =>
+      safe(
+        (async () => {
+          const { listPaymentProviders, getPaymentProviderEntryWithCredentials } =
+            await import('@/lib/config/payment');
+          const metas = await listPaymentProviders();
+          return Promise.all(
+            metas.map(async (m) => {
+              const withCreds = await getPaymentProviderEntryWithCredentials(m.provider);
+              return { id: m.id, name: m.name, provider: m.provider, isActive: m.isActive, credentials: withCreds?.credentials ?? null };
+            }),
+          );
+        })() as Promise<AggregateInput['paymentConfigs']>,
+        [] as AggregateInput['paymentConfigs'],
+      ),
+    () =>
+      safe(
+        (async () => {
+          const { getEmailKvConfigWithCredentials } = await import('@/lib/config/email');
+          const cfg = await getEmailKvConfigWithCredentials();
+          return cfg
+            ? [{ id: cfg.id, name: cfg.name, provider: cfg.provider, fromEmail: cfg.fromEmail, isActive: cfg.isActive, credentials: cfg.credentials }]
+            : [];
+        })() as Promise<AggregateInput['emailConfigs']>,
+        [] as AggregateInput['emailConfigs'],
+      ),
+    () => safe(loadSystemActivity(now, 5), [] as ActivityEntry[]),
+    () => safe(queryVisitorCount(null, start24, now, true), 0),
+    () => safe(queryVisitorCount(null, start48, start24, true), 0),
+    () => safe(queryVisitorSparkline(null, now, 24, true), new Array<number>(24).fill(0)),
+    () => safe(queryVisitorCountsByFunnel(start24, now), []),
+    () => safe(queryAttributedOrders(null, start24), []),
+    () => safe(queryLatestTrafficAt(), null),
   ]);
 
   const lastAnalysis = await getLastConversionAnalysisResult().catch(() => undefined);

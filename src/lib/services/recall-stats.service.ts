@@ -1,4 +1,4 @@
-import { getBasePrisma } from '@/lib/db';
+import { getBasePrisma, dbAll } from '@/lib/db';
 import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
 import { getCurrentTenantId } from '@/lib/tenant/context';
 import { getCache, CACHE_TTL } from '@/lib/adapters/cache';
@@ -36,20 +36,22 @@ export async function getRecallStats(range: RecallStatsRange): Promise<RecallSta
   const since = sinceFromRange(range);
   const createdAtFilter = since ? { createdAt: { gte: since } } : {};
 
-  const [emailsSent, ordersRecovered] = await Promise.all([
-    prisma.recallTouch.count({
-      where: withTenantWhere({
-        channel: 'email',
-        firedAt: { not: null },
-        ...createdAtFilter,
+  const [emailsSent, ordersRecovered] = await dbAll([
+    () =>
+      prisma.recallTouch.count({
+        where: withTenantWhere({
+          channel: 'email',
+          firedAt: { not: null },
+          ...createdAtFilter,
+        }),
       }),
-    }),
-    prisma.recallAttempt.count({
-      where: withTenantWhere({
-        status: 'recovered',
-        ...createdAtFilter,
+    () =>
+      prisma.recallAttempt.count({
+        where: withTenantWhere({
+          status: 'recovered',
+          ...createdAtFilter,
+        }),
       }),
-    }),
   ]);
 
   const result: RecallStats = {

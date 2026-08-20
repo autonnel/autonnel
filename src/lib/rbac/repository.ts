@@ -1,4 +1,4 @@
-import { getBasePrisma } from '@/lib/db';
+import { getBasePrisma, dbAll } from '@/lib/db';
 import { FEATURES, VIRTUAL_ADMIN_ROLE_ID, VIRTUAL_ADMIN_ROLE_NAME, type FeatureId } from './config';
 import { invalidateAllPermissionCaches, invalidateUserRolesCache } from './cache';
 import { getCurrentTenantId } from '@/lib/tenant/context';
@@ -273,12 +273,13 @@ export class PrismaPermissionRepository implements IPermissionRepository {
     const userIds = memberships.map((m) => m.userId);
     if (userIds.length === 0) return [];
 
-    const [users, roles] = await Promise.all([
-      getBasePrisma().user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, email: true },
-      }),
-      getBasePrisma().role.findMany({ where: { tenantId }, select: { id: true, name: true } }),
+    const [users, roles] = await dbAll([
+      () =>
+        getBasePrisma().user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, email: true },
+        }),
+      () => getBasePrisma().role.findMany({ where: { tenantId }, select: { id: true, name: true } }),
     ]);
 
     const roleNameById = new Map(roles.map((r) => [r.id, r.name] as const));

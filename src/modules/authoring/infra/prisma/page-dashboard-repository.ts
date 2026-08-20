@@ -1,4 +1,5 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { dbAll } from '@/lib/db';
 import type {
   PageDashboardRepositoryPort,
   PageDashboardRow,
@@ -62,24 +63,25 @@ export class PrismaPageDashboardRepository implements PageDashboardRepositoryPor
     }
     const page = query.page ?? 1;
     const perPage = query.perPage ?? 20;
-    const [rows, total] = await Promise.all([
-      this.db.page.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip: (page - 1) * perPage,
-        take: perPage,
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          type: true,
-          status: true,
-          editorType: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      this.db.page.count({ where }),
+    const [rows, total] = await dbAll([
+      () =>
+        this.db.page.findMany({
+          where,
+          orderBy: { updatedAt: 'desc' },
+          skip: (page - 1) * perPage,
+          take: perPage,
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            type: true,
+            status: true,
+            editorType: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        }),
+      () => this.db.page.count({ where }),
     ]);
     return { items: rows as PageDashboardRow[], total };
   }
