@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.6.0
+
+### Added
+
+- **MCP server at `POST /api/mcp`.** Streamable HTTP, stateless, authenticated with the same API keys as the REST API. 20 tools covering funnels, funnel steps, pages, page templates, the product catalog, orders and reporting; 13 of them share their zod schema and handler with a `/api/v1.1/` endpoint, so the two surfaces cannot drift. Write tools require a key with `writeAccess`.
+- **Write endpoints under `/api/v1.1/`** for funnels, funnel pages, pages and media, gated by `writeAccess` through a single `requireWriteAccess` check.
+- **Live visitor badges in the funnel activity feed.** Truncated visitor id, a stable colour per visitor and dwell formatting, shared by the server-rendered rows and the SSE rows so both render identically.
+- **Docker images are published to Docker Hub** (`autonnel/autonnel`) alongside GHCR, from the same multi-arch build.
+
+### Fixed
+
+- **Conversion postbacks are retried on Cloudflare deployments.** The retry sweep only ran from the `/api/cron/postbacks` HTTP endpoint, so a Workers deployment with no external scheduler never retried a failed postback. The scheduled handler now drives it.
+- **Cron sweeps no longer write to KV on every tick.** The interval gate ran *inside* the distributed lock, so each job paid a KV write plus a delete on every 5-minute tick even when the interval then skipped it — a job declaring 30 minutes burned roughly 288 write/delete pairs a day to do nothing. The gate now runs before the lock, with the authoritative re-check kept under it.
+- **Cached reads collapse concurrent misses.** On Cloudflare KV a read is served from a ~60s edge cache, so an expired key keeps reading as absent long after the refresh is written, and every request in that window re-ran the loader and rewrote the same value. Read-through caching is now single-flight per key (`cacheGetOrSet`), used by the API-key and RBAC lookups on the per-request auth paths.
+- **Database connections no longer exhaust the Hyperdrive pool.** Concurrent Prisma queries are serialized and dashboard fan-out is bounded.
+- **Outbound fetches work on workerd again.** IP pinning has no equivalent on Cloudflare Workers — there is no `node:http` and `fetch` cannot be pointed at an address — so pinning is skipped there instead of failing closed. Node keeps DNS validation plus pinning.
+- **A rejected outbound URL now says which URL was rejected** instead of surfacing as a generic MCP failure.
+- **Revoked API keys no longer appear in the key list.** Revocation is a soft delete; those rows are kept for auth lookups but are no longer listed as live keys.
+- **Media upload fails with 412 when storage was never configured**, instead of letting blank S3 credentials reach the PUT and reading as a generic upload fault.
+
+### Documentation
+
+- README restructured around the two install paths: the Docker image for running the product, a source checkout for modifying Autonnel or deploying to Cloudflare Workers.
+
 ## 1.5.0
 
 ### BREAKING CHANGES
