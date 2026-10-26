@@ -19,4 +19,5 @@ export interface AdTestEventResponseDto {
 export interface AdsContracts {
   'GET /api/marketing/:id/accounts': { input: null; output: AdAccountsResponseDto };
   'POST /api/marketing/:id/test-event': { input: { testEventCode?: string } | null; output: AdTestEventResponseDto };
+  'POST /api/ads/creatives/:id/assign': { input: { funnelId: string | null }; output: { ok: true } };
 }

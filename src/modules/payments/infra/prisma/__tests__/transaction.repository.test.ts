@@ -37,6 +37,14 @@ const decideFixed = (amountMinor: number) =>
 describe('PrismaTransactionRepository.reserveRefund', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('records the parent intent provider on the reservation row', async () => {
+    const { prisma, spies } = makePrisma({});
+    spies.queryRaw.mockResolvedValueOnce([{ id: 'int_1', provider: 'ACME' }]);
+    const repo = new PrismaTransactionRepository(prisma);
+    await repo.reserveRefund({ parentTransactionId: 'int_1', chargeRef: 'ch_1', idempotencyKey: 'k1', decide: decideFixed(500) });
+    expect(spies.create).toHaveBeenCalledWith({ data: expect.objectContaining({ provider: 'ACME' }) });
+  });
+
   it('locks the parent row before reading the prior sum, then creates a PENDING reservation', async () => {
     const { prisma, spies, order } = makePrisma({ priorSumMinor: 1000 });
     const repo = new PrismaTransactionRepository(prisma);

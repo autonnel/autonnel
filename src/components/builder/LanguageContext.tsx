@@ -25,3 +25,11 @@ export function useTranslation() {
     return translate(lang, key, params);
   }, [lang]);
 }
+
+const CurrencyContext = React.createContext<string>('');
+
+export const CurrencyProvider = CurrencyContext.Provider;
+
+export function usePageCurrency(): string {
+  return React.useContext(CurrencyContext);
+}

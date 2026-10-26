@@ -1,8 +1,10 @@
 
 import React, { useState } from 'react';
-import { EditableProductName, normalizeSelection, type SelectedItem, type ProductSelectionData } from './product-selection-types';
+import { EditableProductName, itemMissingPrice, normalizeSelection, type SelectedItem, type ProductSelectionData } from './product-selection-types';
 import { ProductSelectionModal, formatPrice } from './ProductSelectionModal';
+import { useLanguage } from '../LanguageContext';
 import { scaledFontSize } from '../TextField';
+import { useEditorPageCurrency } from '../fields/editor-page-currency';
 
 function changeItemAt(items: SelectedItem[], index: number, patch: Partial<SelectedItem>): SelectedItem[] {
   const next = [...items];
@@ -150,6 +152,7 @@ function SelectedProductPreview({
   index,
   itemCount,
   currency,
+  missingPriceCurrency,
   onMove,
   onNameChange,
   onBadgeUpdate,
@@ -160,12 +163,14 @@ function SelectedProductPreview({
   index: number;
   itemCount: number;
   currency: string;
+  missingPriceCurrency?: string;
   onMove: (to: number) => void;
   onNameChange: (fields: { productName?: string; variantName?: string }) => void;
   onBadgeUpdate: (patch: { badgeLabel?: string; badgeColor?: string }) => void;
   onBadgeClear: () => void;
   onBadgeDefault: () => void;
 }) {
+  const language = useLanguage();
   const activeBadge = itemHasBadge(item);
   return (
     <div
@@ -182,9 +187,14 @@ function SelectedProductPreview({
         <ReorderControls index={index} itemCount={itemCount} onMove={onMove} />
         <EditableProductName item={item} onSave={onNameChange} />
         <span style={{ color: '#111827', fontWeight: 500, flexShrink: 0 }}>
-          {formatPrice(item.price, currency)}
+          {formatPrice(item.price, currency, language)}
         </span>
       </div>
+      {missingPriceCurrency && (
+        <div role="alert" style={{ marginLeft: 18, fontSize: scaledFontSize(11), color: '#991B1B' }}>
+          No price in {missingPriceCurrency}
+        </div>
+      )}
 
       <BadgeEditor
         item={item}
@@ -205,6 +215,7 @@ export function ProductSelectorField({
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const selection = normalizeSelection(value);
+  const pageCurrency = useEditorPageCurrency();
 
   const handleNameChange = (index: number, fields: { productName?: string; variantName?: string }) => {
     onChange({ ...selection, items: changeItemAt(selection.items, index, fields) });
@@ -267,6 +278,7 @@ export function ProductSelectorField({
               index={index}
               itemCount={selection.items.length}
               currency={selection.currency}
+              missingPriceCurrency={itemMissingPrice(item, selection.currency, pageCurrency) ? pageCurrency : undefined}
               onMove={(to) => handleReorder(reorderItems(selection.items, index, to))}
               onNameChange={(fields) => handleNameChange(index, fields)}
               onBadgeUpdate={(patch) => updateItemBadge(index, patch)}
@@ -283,6 +295,7 @@ export function ProductSelectorField({
         selectedItems={selection.items}
         initialCurrency={selection.currency}
         initialRegionId={selection.regionId}
+        pageCurrency={pageCurrency}
         onSelect={onChange}
       />
     </div>

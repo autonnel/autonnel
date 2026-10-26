@@ -2,8 +2,7 @@ import type { APIRoute } from 'astro';
 import { makeConfirmCardPayment } from '@/composition/make-payments';
 import { runCheckoutDrain } from '@/composition/run-checkout-drain';
 import { getCurrentTenantId } from '@/lib/tenant/context';
-import { getBasePrisma } from '@/lib/db';
-import { funnelNextStepIsUpsell } from '@/lib/funnel-next-step';
+import { maybeDeferHandoff } from '@/lib/storefront/defer-handoff';
 import { ownsSale, SALE_OWNERSHIP_DENIED } from '@/lib/storefront/sale-ownership';
 import type { ShopStripePaymentInput, ShopStripePaymentDto } from '@/contracts/shop';
 import { createLogger } from '@/lib/logger';
@@ -14,23 +13,6 @@ const logger = createLogger('ShopPaymentStripe');
 
 function json(body: ShopStripePaymentDto, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
-
-// Hold the single ecommerce push when an upsell follows checkout so base + upsells push as ONE
-// merged order (Stripe still charges separately per upsell). Set before the drain delivers the
-// capture event. Non-upsell checkouts are untouched (push at checkout as before).
-async function maybeDeferHandoff(saleRef: string, funnelId?: string, pageId?: string): Promise<void> {
-  if (!pageId) return;
-  try {
-    if (await funnelNextStepIsUpsell(pageId, funnelId ?? null)) {
-      await getBasePrisma().paymentIntent.update({
-        where: { tenantId_saleRef: { tenantId: getCurrentTenantId(), saleRef } },
-        data: { handoffDeferred: true },
-      });
-    }
-  } catch (err) {
-    logger.warn('Failed to set handoffDeferred; ecommerce push will proceed at checkout', { error: err, saleRef });
-  }
 }
 
 // Public shopper endpoint: confirms / finalizes a Stripe PaymentIntent for an existing sale.

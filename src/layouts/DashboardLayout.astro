@@ -4,12 +4,14 @@ import Sidebar from '@/components/layout/Sidebar.astro';
 import Topbar from '@/components/layout/Topbar.astro';
 import Footer from '@/components/layout/Footer.astro';
 import GlobalBanners from '@/components/layout/GlobalBanners.astro';
+import SessionExpiryRedirect from '@/components/layout/SessionExpiryRedirect.astro';
 import CommandPalette from '@/components/primitives/ds/CommandPalette';
 import ToastProvider from '@/components/primitives/ds/ToastProvider';
 import { loadPaletteSeed } from '@/lib/dashboard/palette-data';
 import { findNavById } from '@/lib/dashboard/nav';
 import { getPolicyHooks } from '@/lib/plugins/registry';
 import { getCurrentTenantId } from '@/lib/tenant/context';
+import { WHITE_LABEL } from '@/lib/dashboard/white-label';
 
 interface Crumb {
   label: string;
@@ -34,7 +36,7 @@ const {
 
 let breadcrumbs: Crumb[] = breadcrumbsOverride ?? [];
 if (!breadcrumbsOverride) {
-  const trail: Crumb[] = [{ label: 'Autonnel', href: '/' }];
+  const trail: Crumb[] = WHITE_LABEL ? [] : [{ label: 'Autonnel', href: '/' }];
   if (activeNav) {
     const { group, child } = findNavById(activeNav);
     if (child && group) {
@@ -51,7 +53,7 @@ if (!breadcrumbsOverride) {
   breadcrumbs = trail;
 }
 
-const docTitle = pageTitle ?? `${title} · Autonnel`;
+const docTitle = pageTitle ?? (WHITE_LABEL ? title : `${title} · Autonnel`);
 
 let paletteSeed: { funnels: Array<{ id: string; name: string; slug?: string | null }>; sites: Array<{ id: string; name: string }> } = {
   funnels: [],
@@ -75,6 +77,7 @@ const globalBanners = await Promise.resolve(
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{docTitle}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <SessionExpiryRedirect />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

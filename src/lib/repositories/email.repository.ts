@@ -7,6 +7,7 @@ import {
   type EmailProvider,
   type SmtpCredentials,
   type ResendCredentials,
+  type CloudflareEmailCredentials,
   type EmailConfigPublic,
   type EmailConfigWithCredentials,
 } from '@/lib/config/email';
@@ -16,7 +17,7 @@ export type { EmailConfigPublic, EmailConfigWithCredentials };
 export interface CreateEmailConfigInput {
   provider: EmailProvider;
   name: string;
-  credentials: SmtpCredentials | ResendCredentials;
+  credentials: SmtpCredentials | ResendCredentials | CloudflareEmailCredentials;
   fromEmail: string;
   fromName?: string;
   replyTo?: string;
@@ -25,7 +26,7 @@ export interface CreateEmailConfigInput {
 export interface UpdateEmailConfigInput {
   provider?: EmailProvider;
   name?: string;
-  credentials?: Partial<SmtpCredentials> | Partial<ResendCredentials>;
+  credentials?: Partial<SmtpCredentials> | Partial<ResendCredentials> | CloudflareEmailCredentials;
   fromEmail?: string;
   fromName?: string | null;
   replyTo?: string | null;

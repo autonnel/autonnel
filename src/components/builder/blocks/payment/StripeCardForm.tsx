@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { labelStyle, getIframeFieldStyle } from './types';
-import { useTranslation } from '../../LanguageContext';
+import { useLanguage, useTranslation } from '../../LanguageContext';
+import { translateCheckoutMessage } from '../../checkout-messages';
 import { scaledFontSize } from '../../TextField';
 import type { ShopStripePaymentDto, ShopStripePaymentInput } from '@/contracts/shop';
 
@@ -19,9 +20,9 @@ function getFormValue(name: string): string {
   return el ? (el.value || '').trim() : '';
 }
 
-function emitPaymentError(message: string, code?: string | null) {
+function emitPaymentError(message: string, code?: string | null, reason?: string | null) {
   window.dispatchEvent(new CustomEvent('autonnel:showPaymentError', {
-    detail: { message, provider: 'stripe', code: code ?? null },
+    detail: { message, reason: reason || message, provider: 'stripe', code: code ?? null },
   }));
 }
 
@@ -51,6 +52,7 @@ export function StripeCardForm({
   onProcessingChange,
 }: StripeCardFormProps) {
   const t = useTranslation();
+  const lang = useLanguage();
   const [stripeReady, setStripeReady] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState(false);
@@ -77,7 +79,7 @@ export function StripeCardForm({
         || window.__PAYMENT_CONFIG__?.card;
       const publishableKey = config?.publishableKey;
       if (!publishableKey) {
-        setErrors({ general: 'Stripe is not configured.' });
+        setErrors({ general: t('payment.stripeNotConfigured') });
         return false;
       }
       try {
@@ -113,7 +115,7 @@ export function StripeCardForm({
         return true;
       } catch (err) {
         console.error('[StripeCardForm] Init failed', err);
-        setErrors({ general: 'Failed to initialize card form.' });
+        setErrors({ general: t('payment.cardInitFailed') });
         return false;
       }
     };
@@ -128,7 +130,7 @@ export function StripeCardForm({
     const timeout = setTimeout(() => {
       if (!stripeReady && !initializedRef.current) {
         if (!init()) {
-          setErrors({ general: 'Card form failed to load. Please refresh the page.' });
+          setErrors({ general: t('payment.cardFormLoadFailed') });
         }
       }
     }, 15000);
@@ -145,7 +147,7 @@ export function StripeCardForm({
     if (processing) return;
 
     if (!stripeRef.current || !cardElementRef.current) {
-      setErrors({ general: 'Card form not ready. Please wait.' });
+      setErrors({ general: t('payment.cardFormNotReady') });
       return;
     }
 
@@ -166,14 +168,14 @@ export function StripeCardForm({
         paymentType: 'stripe-card',
         missingFields: missing,
       });
-      setErrors({ general: 'Please fill in all required shipping fields.' });
+      setErrors({ general: t('validation.fillShippingFields') });
       return;
     }
     if (!emailRegex.test(customerEmail)) {
       window.dispatchEvent(new CustomEvent('autonnel:formValidationError', {
         detail: { invalidEmail: true },
       }));
-      setErrors({ general: 'Please enter a valid email address.' });
+      setErrors({ general: t('validation.invalidEmail') });
       return;
     }
 
@@ -206,7 +208,7 @@ export function StripeCardForm({
       if (!orderId) {
         // ensureOrder surfaces the real reason via autonnel:showPaymentError; don't call
         // the payment endpoint without an order (it would only report "orderId is required").
-        setErrors({ general: 'Could not start your order — the item may be unavailable. Please refresh and try again.' });
+        setErrors({ general: t('payment.orderStartFailed') });
         setProcessing(false);
         return;
       }
@@ -222,9 +224,9 @@ export function StripeCardForm({
       });
 
       if (pmError) {
-        setErrors({ general: pmError.message || 'Card validation failed.' });
+        setErrors({ general: pmError.message || t('payment.cardValidationFailed') });
         setProcessing(false);
-        emitPaymentError(pmError.message || 'Card validation failed.', pmError.decline_code || pmError.code);
+        emitPaymentError(pmError.message || t('payment.cardValidationFailed'), pmError.decline_code || pmError.code);
         (window as any).Autonnel?.trackEvent?.('STRIPE_DECLINED', {
           error: pmError.message,
           code: pmError.code,
@@ -251,12 +253,12 @@ export function StripeCardForm({
       const data = (await res.json()) as ShopStripePaymentDto;
 
       if (!res.ok || !data.success) {
-        const msg = data.error || 'Payment failed. Please try another card.';
+        const msg = translateCheckoutMessage(lang, data.error, 'payment.failedTryAnotherCard');
         setErrors({ general: msg });
         setProcessing(false);
-        emitPaymentError(msg, data.code);
+        emitPaymentError(msg, data.code, data.error);
         (window as any).Autonnel?.trackEvent?.('STRIPE_DECLINED', {
-          error: msg,
+          error: data.error || msg,
           code: data.code,
         });
         return;
@@ -265,9 +267,9 @@ export function StripeCardForm({
       if (data.requiresAction && data.clientSecret) {
         const { error: confirmError, paymentIntent } = await stripeRef.current.handleCardAction(data.clientSecret);
         if (confirmError) {
-          setErrors({ general: confirmError.message || '3DS authentication failed.' });
+          setErrors({ general: confirmError.message || t('payment.authFailed') });
           setProcessing(false);
-          emitPaymentError(confirmError.message || '3DS authentication failed.', confirmError.decline_code || confirmError.code);
+          emitPaymentError(confirmError.message || t('payment.authFailed'), confirmError.decline_code || confirmError.code);
           (window as any).Autonnel?.trackEvent?.('STRIPE_DECLINED', {
             error: confirmError.message,
             code: confirmError.code,
@@ -289,10 +291,10 @@ export function StripeCardForm({
         });
         const finalData = (await finalize.json()) as ShopStripePaymentDto;
         if (!finalize.ok || !finalData.success) {
-          const msg = finalData.error || 'Payment failed after authentication.';
+          const msg = translateCheckoutMessage(lang, finalData.error, 'payment.failedAfterAuth');
           setErrors({ general: msg });
           setProcessing(false);
-          emitPaymentError(msg, finalData.code);
+          emitPaymentError(msg, finalData.code, finalData.error);
           return;
         }
         window.dispatchEvent(new CustomEvent('autonnel:paymentComplete', {
@@ -306,10 +308,10 @@ export function StripeCardForm({
       }));
     } catch (err: any) {
       console.error('[StripeCardForm] Submit error', err);
-      const msg = err?.message || 'Payment failed. Please try again.';
+      const msg = translateCheckoutMessage(lang, err?.message, 'payment.failedTryAgain');
       setErrors({ general: msg });
       setProcessing(false);
-      emitPaymentError(msg, err?.code);
+      emitPaymentError(msg, err?.code, err?.message);
     }
   };
 

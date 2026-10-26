@@ -1,0 +1,29 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import PluginSettingsPanel from '@/components/settings/PluginSettingsPanel';
+import { getPluginSettingsPanel } from '@/lib/plugins/registry';
+import { loadPluginSettingsWire } from '@/lib/plugins/settings-wire';
+
+export const prerender = false;
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+if (!(await userHasFeature(auth.user.id, FEATURES.SETTINGS))) {
+  return Astro.redirect('/');
+}
+
+const panel = getPluginSettingsPanel(Astro.params.panelId ?? '');
+if (!panel) {
+  return new Response('Not found', { status: 404 });
+}
+
+const initial = await loadPluginSettingsWire(panel);
+---
+
+<DashboardLayout title={panel.title} activeNav={`settings.plugin.${panel.id}`}>
+  <PluginSettingsPanel client:load initial={initial} />
+</DashboardLayout>

@@ -171,8 +171,8 @@ export async function createPageBuilderAgent(
     baseURL: row.baseUrl.replace(/\/+$/, ''),
     apiKey: row.apiKey,
   });
-  const modelId = row.name;
-  const model = openai(modelId);
+  const modelId = row.modelId;
+  const model = openai.chat(modelId);
 
   const currentComponentsStr = currentComponents.length
     ? currentComponents.map((c) => `  [${c.index}] ${c.type}`).join('\n')

@@ -7,12 +7,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+.claude
+
 node_modules
 dist
 dist-ssr
 *.local
 .astro
 
+
+#### 
 # Environment variables
 .env
 .env.local

@@ -1,19 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { scaledFontSize } from '../../TextField';
+import { useTranslation } from '../../LanguageContext';
+import type { TranslationKey } from '../../translations';
 
 interface PayPalButtonProps {
   onProcessingChange: (processing: boolean) => void;
 }
 
-const REQUIRED_FIELDS = [
-  ['email', 'Email'],
-  ['firstName', 'First Name'],
-  ['lastName', 'Last Name'],
-  ['phone', 'Phone'],
-  ['address1', 'Address'],
-  ['city', 'City'],
-  ['postalCode', 'Postal Code'],
-] as const;
+const REQUIRED_FIELDS: ReadonlyArray<readonly [name: string, label: string, labelKey: TranslationKey]> = [
+  ['email', 'Email', 'validation.fieldEmail'],
+  ['firstName', 'First Name', 'validation.fieldFirstName'],
+  ['lastName', 'Last Name', 'validation.fieldLastName'],
+  ['phone', 'Phone', 'validation.fieldPhone'],
+  ['address1', 'Address', 'validation.fieldAddress'],
+  ['city', 'City', 'validation.fieldCity'],
+  ['postalCode', 'Postal Code', 'validation.fieldPostalCode'],
+];
 
 const PO_BOX_REGEX = /(?:^|\s|,)(?:p\.?\s*o\.?\s*box|p\.?\s*o\.?\s*b\.?(?:\s|$|[0-9#])|post\s+office\s+box)\b/i;
 const PAYPAL_LOAD_TIMEOUT_MS = 30000;
@@ -25,7 +27,7 @@ function formField(name: string) {
 function checkoutMissingFields() {
   return REQUIRED_FIELDS
     .filter(([name]) => !formField(name)?.value.trim())
-    .map(([, label]) => label);
+    .map(([, label, labelKey]) => ({ label, labelKey }));
 }
 
 function resetFieldHighlight(name: string, invalid: boolean) {
@@ -88,25 +90,28 @@ function PayPalNotice({ children, compact = false }: { children: React.ReactNode
 }
 
 function LoadingButton({ retrying }: { retrying: boolean }) {
+  const t = useTranslation();
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 45, background: '#FFC439', borderRadius: 25, color: '#003087', fontSize: scaledFontSize(14) }}>
       <span style={{ width: 16, height: 16, border: '2px solid #003087', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: 8 }} />
-      {retrying ? 'Retrying PayPal...' : 'Loading PayPal...'}
+      {retrying ? t('expressCheckout.retryingPayPal') : t('expressCheckout.loadingPayPal')}
     </div>
   );
 }
 
 function SecureFooter() {
+  const t = useTranslation();
   return (
     <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
-      <span style={{ fontSize: scaledFontSize(12), color: '#9ca3af' }}>🔒 Secure payment</span>
+      <span style={{ fontSize: scaledFontSize(12), color: '#9ca3af' }}>{t('payment.securePayment')}</span>
       <span style={{ fontSize: scaledFontSize(12), color: '#9ca3af' }}>•</span>
-      <span style={{ fontSize: scaledFontSize(12), color: '#9ca3af' }}>Buyer protection included</span>
+      <span style={{ fontSize: scaledFontSize(12), color: '#9ca3af' }}>{t('payment.buyerProtectionIncluded')}</span>
     </div>
   );
 }
 
 export function PayPalButton({ onProcessingChange: _onProcessingChange }: PayPalButtonProps) {
+  const t = useTranslation();
   const [ready, setReady] = useState(false);
   const [buttonError, setButtonError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -144,10 +149,11 @@ export function PayPalButton({ onProcessingChange: _onProcessingChange }: PayPal
           fundingSource: window.paypal.FUNDING.PAYPAL,
           style: { color: 'gold', shape: 'pill', label: 'paypal', height: 45 },
           onClick: (_data: any, actions: any) => {
-            const missingFields = checkoutMissingFields();
+            const missing = checkoutMissingFields();
+            const missingFields = missing.map((field) => field.label);
             if (missingFields.length > 0) {
               focusFirstMissingField();
-              setValidationError(`Please fill in: ${missingFields.join(', ')}`);
+              setValidationError(t('validation.fillIn', { fields: missing.map((field) => t(field.labelKey)).join(', ') }));
               track('PAYPAL_BUTTON_CLICK', { paymentType: 'paypal', hasAddress: false, validationFailed: true });
               track('FORM_VALIDATION_FAILED', {
                 reason: `Missing required fields: ${missingFields.join(', ')}`,
@@ -158,7 +164,7 @@ export function PayPalButton({ onProcessingChange: _onProcessingChange }: PayPal
             }
 
             if (hasPOBoxAddress()) {
-              setValidationError('PO Box addresses are not accepted. Please enter a street address.');
+              setValidationError(t('validation.poBox'));
               resetFieldHighlight('address1', true)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
               formField('address1')?.focus();
               track('FORM_VALIDATION_FAILED', {
@@ -194,7 +200,7 @@ export function PayPalButton({ onProcessingChange: _onProcessingChange }: PayPal
         return true;
       } catch (error) {
         console.error('[PayPalButton] Render failed:', error);
-        setButtonError('Failed to load PayPal. Please try again.');
+        setButtonError(t('payment.paypalLoadFailed'));
         return false;
       }
     };
@@ -239,7 +245,7 @@ export function PayPalButton({ onProcessingChange: _onProcessingChange }: PayPal
   return (
     <div style={{ padding: 24, background: '#f9fafb', borderRadius: 10, marginBottom: 24 }}>
       <p style={{ fontSize: scaledFontSize(14), color: '#6b7280', marginBottom: 16, textAlign: 'center' }}>
-        Click the PayPal button below to complete your payment securely.
+        {t('payment.paypalInstruction')}
       </p>
       {validationError && <PayPalNotice compact>{validationError}</PayPalNotice>}
       <div ref={containerRef} style={{ minHeight: 45, marginBottom: 12 }}>

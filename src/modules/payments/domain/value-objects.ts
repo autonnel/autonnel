@@ -1,6 +1,7 @@
 import { Money } from '../../shared-kernel/money';
 
-export type PspSlug = 'STRIPE' | 'PAYPAL';
+// Built-in slugs are 'STRIPE' and 'PAYPAL'; plugins register further upper-case slugs.
+export type PspSlug = string;
 
 export class SaleRef {
   private constructor(public readonly value: string) {}
@@ -50,13 +51,18 @@ export class CaptureResult {
   get payer() { return this.props.payer; }
 }
 
-// Short-lived browser handle for SCA / redirect (Stripe client_secret / PayPal approval url).
+export type ClientHandleKind = 'client_secret' | 'approval_url' | 'redirect_url';
+
+// Short-lived browser handle: Stripe client_secret, PayPal approval url, or a hosted-page redirect.
 export class ClientHandle {
   private constructor(
     public readonly provider: PspSlug,
-    public readonly kind: 'client_secret' | 'approval_url',
+    public readonly kind: ClientHandleKind,
     public readonly value: string,
   ) {}
+  static of(provider: PspSlug, kind: ClientHandleKind, value: string): ClientHandle {
+    return new ClientHandle(provider, kind, value);
+  }
   static stripeClientSecret(value: string): ClientHandle {
     return new ClientHandle('STRIPE', 'client_secret', value);
   }

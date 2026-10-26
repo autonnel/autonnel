@@ -9,17 +9,25 @@ export interface AddToCartDeps {
   catalog: CommerceCatalogReaderPort;
   clock: () => Date;
   ttlSeconds: number;
-  market: { countryCode: string; currencyCode: string };
 }
 
 export class AddToCartService {
   constructor(private readonly deps: AddToCartDeps) {}
 
-  async execute(sessionId: string, input: { variantExternalId: string; quantity: number }): Promise<void> {
+  // `replace` starts the cart over (a changed selection); the clear is persisted even when the
+  // new line is rejected so a stale previous selection can never be submitted.
+  async execute(
+    sessionId: string,
+    input: { variantExternalId: string; quantity: number; replace?: boolean },
+  ): Promise<void> {
     const session = await this.deps.sessions.load(sessionId);
     if (!session) throw new Error('FunnelSession not found');
-    const [view] = await this.deps.catalog.resolve([input.variantExternalId], this.deps.market);
-    if (!view || !view.sellable) throw new Error('Variant is not sellable');
+    if (input.replace) session.clearLines();
+    const [view] = await this.deps.catalog.resolve([input.variantExternalId], session.market);
+    if (!view || !view.sellable) {
+      if (input.replace) await this.deps.sessions.store(session, this.deps.ttlSeconds);
+      throw new Error('Variant is not sellable');
+    }
     const line = OfferLineItem.create({
       variantExternalId: ExternalRef.of(view.variantExternalId),
       title: view.title,

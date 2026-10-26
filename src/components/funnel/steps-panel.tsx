@@ -9,6 +9,7 @@ import {
   PAGE_TYPE_ORDER,
   REQUIRED_FUNNEL_PAGES,
 } from './index';
+import { FUNNEL_TO_DB_PAGE_TYPE } from './types';
 import type { Funnel, FunnelPage, Page, FunnelValidationError } from './types';
 
 export interface FunnelStepsProps {
@@ -154,6 +155,22 @@ function FunnelStepsContent({
     setShowCreatePageModal(true);
   };
 
+  const hasLandingPage = funnel.pages.some((p) => p.pageType === 'LANDING');
+
+  const openLandingTemplatePicker = () => {
+    setSelectedPageType('LANDING');
+    setCreatePageMode('add');
+    setShowCreatePageModal(true);
+  };
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('next') !== 'landing') return;
+    url.searchParams.delete('next');
+    window.history.replaceState(null, '', url.toString());
+    if (!hasLandingPage) openLandingTemplatePicker();
+  }, []);
+
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
@@ -208,6 +225,22 @@ function FunnelStepsContent({
         <AlertBox type="warning" className="mb-6">
           Complete the funnel setup (checkout, thankyou, error pages) to enable the checkout flow
         </AlertBox>
+      )}
+
+      {!hasLandingPage && (
+        <DsCard className="mb-5">
+          <div data-testid="funnel-next-step-landing" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="text-[14px] font-semibold text-ds-ink">Next step: add a landing page</div>
+              <div className="text-[12.5px] text-ds-muted mt-0.5 max-w-[520px]">
+                This is the page your visitors land on first. Pick a template and customize it in the editor.
+              </div>
+            </div>
+            <DsButton variant="primary" size="md" onClick={openLandingTemplatePicker}>
+              Choose a template
+            </DsButton>
+          </div>
+        </DsCard>
       )}
 
       <div className="flex justify-between items-center mb-5">
@@ -291,6 +324,7 @@ function FunnelStepsContent({
         <CreatePageModal
           onClose={() => setShowCreatePageModal(false)}
           onCreated={handleCreatedPage}
+          defaultPageType={FUNNEL_TO_DB_PAGE_TYPE[selectedPageType]}
           redirectAfterCreate={false}
         />
       )}

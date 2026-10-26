@@ -2,10 +2,15 @@
 import DashboardLayout from '@/layouts/DashboardLayout.astro';
 import { checkAuth } from '@/lib/auth/middleware';
 import { userHasFeature, FEATURES } from '@/lib/rbac';
-import { FunnelAnalyticsTab, AnalystPanelLauncher } from '@/components/analytics';
+import { FunnelAnalyticsTab, AnalystPanelLauncher, FunnelAdPerformancePanel } from '@/components/analytics';
 import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
 import { loadFunnelViewUrl } from '@/lib/dashboard/funnels-data';
+import { loadAdReconciliation } from '@/lib/dashboard/ads-reconciliation-data';
+import { resolveFunnelAdWindow } from '@/lib/dashboard/analytics-helpers';
 import { getSiteTimezone } from '@/lib/config/keys';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('funnel:analytics-ads-panel');
 
 const auth = await checkAuth(Astro);
 
@@ -40,6 +45,31 @@ if (!funnel) {
 }
 
 const viewUrl = await loadFunnelViewUrl(funnelId!);
+
+const adWindow = resolveFunnelAdWindow({
+  startDate: initialStartDate,
+  endDate: initialEndDate,
+  timezone: initialTimezone,
+});
+
+const adVm = await loadAdReconciliation({
+  start: adWindow.start,
+  end: adWindow.end,
+  startDateStr: adWindow.startDateStr,
+  endDateStr: adWindow.endDateStr,
+  funnelId: funnelId!,
+}).catch((err) => {
+  logger.error('ad reconciliation failed to load for funnel analytics tab', { error: err, funnelId });
+  return null;
+});
+// loadAdReconciliation now scopes unassigned creatives to this funnel's own candidateFunnelIds, so
+// a currency group can no longer exist with zero rows AND zero scoped-unassigned creatives. It CAN
+// still exist with zero rows and a nonzero unattributedCreatives count -- a creative genuinely
+// candidates for this funnel in a currency where it has no confirmed platform spend yet, which is
+// real data, not a leak. This panel only shows platform-vs-onsite rows (unattributed-creative
+// detail is the global page's job, see the note below), so it has nothing to render for such a
+// group and must still filter it out here.
+const adGroupsWithData = adVm?.currencyGroups.filter((g) => g.rows.length > 0) ?? [];
 
 const tabs = [
   { id: 'overview', label: 'Overview', href: `/funnel/${funnelId}` },
@@ -105,4 +135,17 @@ const activeTab = 'analytics';
     initialEndDate={initialEndDate}
     initialTimezone={initialTimezone}
   />
+
+  {adGroupsWithData.length > 0 && (
+    <div class="mt-6 flex flex-col gap-4">
+      {adGroupsWithData.map((group) => (
+        <FunnelAdPerformancePanel
+          client:load
+          currency={group.currency}
+          rows={group.rows}
+          unattributedHref="/analytics/ads"
+        />
+      ))}
+    </div>
+  )}
 </DashboardLayout>

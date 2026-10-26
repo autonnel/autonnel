@@ -14,8 +14,8 @@ export class CfWaitUntilExecutionAdapter implements DeferredExecutionPort {
 
   run(promiseFactory: () => Promise<unknown>): void {
     const p = promiseFactory().catch((err) => log.error("deferred task failed", { error: err }));
-    const waitUntil = this.locals.cfContext?.waitUntil;
-    if (waitUntil) waitUntil(p);
+    const ctx = this.locals.cfContext;
+    if (ctx?.waitUntil) ctx.waitUntil(p);
     // else: Node fallback — the promise is already running (fire-and-forget).
   }
 }

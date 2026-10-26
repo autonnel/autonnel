@@ -26,6 +26,7 @@ import { createRecallDepsForRequest } from "./make-recall-deps";
 import { dispatchRecallEvent } from "../modules/recall/infra/subscribers/recall-event-subscriber";
 import { OutboxEventPublisher } from "../modules/platform/infra/outbox-event-publisher";
 import { TenantEventPublisher } from "../modules/platform/infra/tenant-event-publisher";
+import { dispatchPluginConversion, hasConversionSubscribers, loadVisitedUrls } from "./plugin-runtime";
 
 const logger = createLogger("EventDelivery");
 
@@ -346,6 +347,30 @@ async function deliverConversion(envelope: DomainEventEnvelope, locals?: unknown
   );
 }
 
+// PayPal upsells are folded into this single capture; Stripe upsells are separate charges and are
+// dispatched from the upsell flow.
+async function deliverPluginConversions(envelope: DomainEventEnvelope, locals?: unknown): Promise<void> {
+  if (!hasConversionSubscribers()) return;
+  const saleRef = envelope.correlation?.saleRef;
+  if (!saleRef) return;
+  const payment = await loadCapturedPayment(saleRef, locals);
+  if (!payment?.checkoutSnapshot) return;
+  const snapshot = payment.checkoutSnapshot;
+  await dispatchPluginConversion(
+    {
+      kind: "purchase",
+      conversionId: saleRef,
+      saleRef,
+      amountMinor: payment.capturedAmountMinor ?? 0,
+      currencyCode: payment.currencyCode,
+      funnelId: snapshot.funnelId ?? undefined,
+      visitedUrls: await loadVisitedUrls(envelope.tenantId, snapshot.visitorId ?? undefined),
+      occurredAt: new Date(envelope.occurredAt).toISOString(),
+    },
+    locals as never,
+  );
+}
+
 // Successful handoff only ENRICHES the already-created Order with its commerce-backend ref (used
 // later by the fulfillment cron to poll tracking). It never creates the Order — that happened on
 // payment capture — so a failed/late handoff never blocks the order or the customer's confirmation.
@@ -421,7 +446,7 @@ async function deliverRecallRecipientSuppressed(envelope: DomainEventEnvelope, l
 }
 
 const ROUTES: Record<string, EventHandler[]> = {
-  "payment.captured": [deliverPaymentCaptured, deliverOrderCreation, deliverConversion, deliverRecallPaymentCaptured],
+  "payment.captured": [deliverPaymentCaptured, deliverOrderCreation, deliverConversion, deliverPluginConversions, deliverRecallPaymentCaptured],
   "payment.refund_issued": [deliverRefundIssued],
   SaleHandedOff: [deliverSaleHandedOff],
   "messaging.RecipientSuppressed": [deliverRecallRecipientSuppressed],

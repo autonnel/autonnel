@@ -67,3 +67,46 @@ describe('buildFunnel headline Visitors + overallCvr', () => {
     expect(out.aov).toBeCloseTo(338.88 / 11, 5);
   });
 });
+
+describe('buildFunnel with ad platform totals', () => {
+  const ad = { impressions: 1131, linkClicks: 65, initiateCheckout: 9, conversions: 0, platformTimezones: ['America/Los_Angeles'] };
+
+  it('prepends the two platform steps so the funnel starts at the impression', () => {
+    const out = buildFunnel(bag({ lp1: 46 }), ad);
+    expect(out.stages.map((s) => s.key).slice(0, 3)).toEqual(['adImpressions', 'adLinkClicks', 'firstLp']);
+    expect(out.stages[0].value).toBe(1131);
+    expect(out.stages[1].value).toBe(65);
+  });
+
+  it('measures the first onsite step against link clicks, which is the click-to-landing drop', () => {
+    const out = buildFunnel(bag({ lp1: 46 }), ad);
+    const firstLp = out.stages.find((s) => s.key === 'firstLp')!;
+    expect(firstLp.conversionPct).toBeCloseTo((46 / 65) * 100, 5);
+  });
+
+  it('reports the platform count alongside our own on checkout and orders, never replacing it', () => {
+    const out = buildFunnel(bag({ lp1: 46, checkout: 42, orders: 3 }), ad);
+    const checkout = out.stages.find((s) => s.key === 'checkout')!;
+    const orders = out.stages.find((s) => s.key === 'orders')!;
+    expect(checkout.value).toBe(42);
+    expect(checkout.platformValue).toBe(9);
+    expect(orders.value).toBe(3);
+    expect(orders.platformValue).toBe(0);
+  });
+
+  it('leaves the visitors KPI an onsite number even though the funnel now starts at impressions', () => {
+    const out = buildFunnel(bag({ lp1: 46, enteringVisitors: 0 }), ad);
+    expect(out.visitors).toBe(46);
+  });
+
+  it('adds no platform stages and no platform annotations when no ad data exists', () => {
+    const out = buildFunnel(bag({ lp1: 46, checkout: 42 }));
+    expect(out.stages[0].key).toBe('firstLp');
+    expect(out.stages.every((s) => s.platformValue == null)).toBe(true);
+  });
+
+  it('keeps a null checkout-start annotation off the row when the platform does not report it', () => {
+    const out = buildFunnel(bag({ lp1: 46, checkout: 42 }), { ...ad, initiateCheckout: null });
+    expect(out.stages.find((s) => s.key === 'checkout')!.platformValue).toBeNull();
+  });
+});

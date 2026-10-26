@@ -5,7 +5,35 @@ import type {
   PolicyHooks,
   SingleValueSlotId,
   ListSlotId,
+  PluginConversion,
+  PluginJobHandler,
+  PluginRuntime,
+  PluginSettingsPanel,
+  PluginCron,
 } from './types';
+
+export interface ConversionSubscriber {
+  pluginName: string;
+  handle: (conversion: PluginConversion, runtime: PluginRuntime) => Promise<void>;
+}
+
+export interface PluginJobHandlerEntry {
+  pluginName: string;
+  handle: PluginJobHandler;
+}
+
+export interface PluginCronEntry {
+  pluginName: string;
+  cron: PluginCron;
+}
+
+export interface PluginRuntimeParts {
+  conversionSubscribers: ConversionSubscriber[];
+  jobHandlers: Record<string, PluginJobHandlerEntry>;
+  settingsPanels: PluginSettingsPanel[];
+  crons: PluginCronEntry[];
+  models: Record<string, string[]>;
+}
 import { DEFAULT_POLICY_HOOKS } from '@/lib/hooks/policy/defaults';
 
 interface PluginRegistryState {
@@ -16,7 +44,10 @@ interface PluginRegistryState {
   activeMenuAppend: MenuItem[];
   activeSidebarSystemAppend: MenuItem[];
   activeNavHidden: string[];
+  runtimeParts: PluginRuntimeParts;
 }
+
+const EMPTY_RUNTIME_PARTS: PluginRuntimeParts = { conversionSubscribers: [], jobHandlers: {}, settingsPanels: [], crons: [], models: {} };
 
 const STATE_KEY = Symbol.for('autonnel.plugins.registry.state');
 
@@ -32,6 +63,7 @@ function getState(): PluginRegistryState {
       activeMenuAppend: [],
       activeSidebarSystemAppend: [],
       activeNavHidden: [],
+      runtimeParts: EMPTY_RUNTIME_PARTS,
     };
     g[STATE_KEY] = state;
   }
@@ -106,6 +138,34 @@ export function getNavHidden(): string[] {
   return getState().activeNavHidden;
 }
 
+export function setPluginRuntimeParts(parts: PluginRuntimeParts): void {
+  getState().runtimeParts = parts;
+}
+
+export function getConversionSubscribers(): ConversionSubscriber[] {
+  return getState().runtimeParts.conversionSubscribers;
+}
+
+export function getPluginJobHandlers(): Record<string, PluginJobHandlerEntry> {
+  return getState().runtimeParts.jobHandlers;
+}
+
+export function getPluginCrons(): PluginCronEntry[] {
+  return getState().runtimeParts.crons;
+}
+
+export function getPluginModels(pluginName: string): string[] {
+  return getState().runtimeParts.models[pluginName] ?? [];
+}
+
+export function getPluginSettingsPanels(): PluginSettingsPanel[] {
+  return getState().runtimeParts.settingsPanels;
+}
+
+export function getPluginSettingsPanel(id: string): PluginSettingsPanel | undefined {
+  return getState().runtimeParts.settingsPanels.find((p) => p.id === id);
+}
+
 export function resetUiAndPolicyRegistry(): void {
   const state = getState();
   state.activePolicyHooks = DEFAULT_POLICY_HOOKS;
@@ -113,4 +173,5 @@ export function resetUiAndPolicyRegistry(): void {
   state.activeMenuAppend = [];
   state.activeSidebarSystemAppend = [];
   state.activeNavHidden = [];
+  state.runtimeParts = EMPTY_RUNTIME_PARTS;
 }

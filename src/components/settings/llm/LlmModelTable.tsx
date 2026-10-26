@@ -9,11 +9,12 @@ import {
   Radio,
 } from '../../primitives';
 import type { LlmModel, LlmModelType } from '@/lib/config/llm-models-types';
+import { usesWorkersAiBinding, WORKERS_AI_BINDING } from '@/lib/llm/workers-ai-config';
 
 interface Props {
   type: LlmModelType;
   models: LlmModel[];
-  onAdd: () => void;
+  onAdd: (type: LlmModelType) => void;
   onEdit: (m: LlmModel) => void;
   onDelete: (m: LlmModel) => void;
   onTest: (m: LlmModel) => void;
@@ -37,7 +38,7 @@ export default function LlmModelTable({
     <DsCard>
       <div className="flex items-center justify-between mb-3">
         <div className="text-[14px] font-semibold text-ds-ink">{LABELS[type]}</div>
-        <DsButton variant="primary" onClick={onAdd}>
+        <DsButton variant="primary" onClick={() => onAdd(type)}>
           + Add {typeLabel} Model
         </DsButton>
       </div>
@@ -64,7 +65,9 @@ export default function LlmModelTable({
                 <Td>{m.name}</Td>
                 <Td className="text-ds-muted">{m.provider}</Td>
                 <Td className="text-ds-muted">{m.modelId}</Td>
-                <Td className="text-ds-muted">{m.baseUrl}</Td>
+                <Td className="text-ds-muted">
+                  {usesWorkersAiBinding(m.provider, m.baseUrl) ? `Workers AI binding (${WORKERS_AI_BINDING})` : m.baseUrl}
+                </Td>
                 <Td>
                   <Radio
                     name={`default-${type}`}

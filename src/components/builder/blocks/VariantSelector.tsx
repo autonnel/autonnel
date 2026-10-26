@@ -7,6 +7,9 @@ import { ProductSelectorCardTheme } from './ProductSelectorCardTheme';
 import { ProductSelectorKitTheme } from './ProductSelectorKitTheme';
 import { ProductSelectorField } from './ProductSelectorField';
 import { type BadgeDefaults } from './badge-utils';
+import { parseVariantIds, pickPreselectedId, VARIANT_QUERY_PARAM } from '@/lib/storefront/variant-params';
+import type { PreselectedItems } from '@/lib/storefront/preselected-items';
+import { CART_LINE_REJECTED_EVENT, useLiveSelection } from './live-selection';
 
 export interface VariantSelectorProps {
   sectionTitle?: string | TextFieldValue;
@@ -28,6 +31,18 @@ export interface VariantSelectorProps {
 
 const EMPTY_GLYPH = '\u{1F4E6}';
 
+// Islands are client-rendered (createRoot), so reading window in the initial state is safe.
+function preselectedPaidItemId(items: SelectedItem[]): string | null {
+  if (typeof window === 'undefined') return null;
+  const preselected = (window as { __AUTONNEL_PRESELECTED_ITEMS__?: PreselectedItems | null }).__AUTONNEL_PRESELECTED_ITEMS__;
+  const requested = [
+    ...(preselected?.items ?? []).map((i) => i.id),
+    ...parseVariantIds(new URLSearchParams(window.location.search).get(VARIANT_QUERY_PARAM)),
+  ];
+  if (requested.length === 0) return null;
+  return pickPreselectedId(items.filter((it) => it.price > 0).map((it) => it.id), requested);
+}
+
 const wrapStyle = (bg: string, radius: number): React.CSSProperties => ({
   background: bg,
   padding: '16px',
@@ -35,7 +50,7 @@ const wrapStyle = (bg: string, radius: number): React.CSSProperties => ({
   containerType: 'inline-size',
 } as React.CSSProperties);
 
-function EmptyPanel({ label, hint }: { label: string; hint: string }) {
+function EmptyPanel({ label, hint }: { label: string; hint?: string }) {
   const shell: React.CSSProperties = {
     border: '2px dashed #e5e7eb',
     borderRadius: 12,
@@ -45,8 +60,8 @@ function EmptyPanel({ label, hint }: { label: string; hint: string }) {
   };
   const captions: Array<[string, React.CSSProperties]> = [
     [label, { color: '#6b7280', fontWeight: 500, fontSize: scaledFontSize(16) }],
-    [hint, { color: '#9ca3af', marginTop: 8, fontSize: scaledFontSize(14) }],
   ];
+  if (hint) captions.push([hint, { color: '#9ca3af', marginTop: 8, fontSize: scaledFontSize(14) }]);
   return (
     <div style={shell}>
       <span style={{ display: 'block', marginBottom: 12, fontSize: scaledFontSize(48) }}>{EMPTY_GLYPH}</span>
@@ -79,26 +94,39 @@ export function VariantSelector({
   const t = useTranslation();
   const selection = normalizeSelection(selectedItems);
 
-  const [items, setItems] = useState<SelectedItem[]>(selection.items);
-  const [selectedId, setSelectedId] = useState<string | null>(selection.items[0]?.id || null);
+  const paymentCurrency =
+    typeof window !== 'undefined' && (window as any).__PAYMENT_CONFIG__?.paypal?.currency;
+  const pricing = useLiveSelection(selection.items, selection.currency || paymentCurrency || 'USD');
+  const [rejectedIds, setRejectedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const items = rejectedIds.size ? pricing.items.filter((it) => !rejectedIds.has(it.id)) : pricing.items;
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => preselectedPaidItemId(selection.items) ?? selection.items[0]?.id ?? null,
+  );
   const userActionRef = useRef(false);
 
   const freeItems = items.filter((it) => it.price <= 0);
   const paidItems = items.filter((it) => it.price > 0);
 
   useEffect(() => {
-    setItems(selection.items);
     const firstPaid = selection.items.find((it) => it.price > 0);
     if (firstPaid && !selectedId) {
       setSelectedId(firstPaid.id);
     }
   }, [selectedItems]);
 
+  useEffect(() => {
+    if (!pricing.live) return;
+    const onRejected = (e: Event) => {
+      const variantId = (e as CustomEvent).detail?.variantId;
+      if (typeof variantId === 'string') setRejectedIds((prev) => new Set(prev).add(variantId));
+    };
+    window.addEventListener(CART_LINE_REJECTED_EVENT, onRejected);
+    return () => window.removeEventListener(CART_LINE_REJECTED_EVENT, onRejected);
+  }, [pricing.live]);
+
   const currentItem = paidItems.find((it) => it.id === selectedId) || paidItems[0];
 
-  const paymentCurrency =
-    typeof window !== 'undefined' && (window as any).__PAYMENT_CONFIG__?.paypal?.currency;
-  const resolvedCurrency = selection.currency || paymentCurrency || 'USD';
+  const resolvedCurrency = pricing.currency;
   const itemCurrency = resolvedCurrency;
 
   const broadcastSelection = useCallback(() => {
@@ -178,9 +206,13 @@ export function VariantSelector({
     kit: renderKit,
   };
 
-  const body: React.ReactNode = !hasItems ? (
-    <EmptyPanel label={t('productSelector.noProducts')} hint={t('productSelector.noProductsHint')} />
+  const emptyPanel = pricing.live ? (
+    <EmptyPanel label={t(pricing.loading ? 'productSelector.loadingPrices' : 'checkout.productUnavailable')} />
   ) : (
+    <EmptyPanel label={t('productSelector.noProducts')} hint={t('productSelector.noProductsHint')} />
+  );
+
+  const body: React.ReactNode = !hasItems ? emptyPanel : (
     (themeRenderers[theme] ?? renderCard)()
   );
 

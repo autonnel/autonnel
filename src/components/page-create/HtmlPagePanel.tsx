@@ -5,6 +5,7 @@ import { extractErrorMessage, slugifyName, randomSlugSuffix, applySlugSuffix, ty
 import { apiCall, ApiCallError } from '@/lib/api/client';
 import type { PageDetailDto } from '@/contracts/pages';
 import { Input, dsFieldLabelClass, dsFieldHintClass } from '@/components/primitives';
+import { persistScriptsOn } from '@/components/grapesjs/canvasScripts';
 
 type Mode = 'blank' | 'import';
 
@@ -97,6 +98,7 @@ export default function HtmlPagePanel({
         try {
           const html = await importHtmlFromUrl(page.id);
           await savePageHtml(page.id, html);
+          persistScriptsOn(page.id, true);
         } catch (importErr) {
           const msg = importErr instanceof Error ? importErr.message : String(importErr);
           setImportWarning(`Import did not complete: ${msg}. Opening the empty page in the editor.`);

@@ -3,6 +3,7 @@ import { PreviewRenderer } from '@/components/builder/PreviewRenderer';
 import { IslandHydrator } from '@/components/builder/IslandHydrator';
 import StorefrontHead from '@/components/storefront/StorefrontHead.astro';
 import PaymentSDKLoader from '@/components/storefront/PaymentSDKLoader.astro';
+import { resolvePageLanguage } from '@/lib/i18n/format-money';
 import { renderPuckToHtml, renderPuckToHtmlWithIslands } from '@/lib/puck-ssr';
 import {
   getStorefrontPageData,
@@ -16,8 +17,13 @@ import { resolveEntryExperiment } from '@/lib/storefront/experiment-routing';
 import { createLogger } from '@/lib/logger';
 import HtmlEditorPageLayout from '@/layouts/HtmlEditorPageLayout.astro';
 import Tracking from '@/components/storefront/Tracking.astro';
+import DepthMarkerScroll from '@/components/storefront/DepthMarkerScroll.astro';
 import { makeAcquisitionAds } from '@/composition/make-acquisition-ads';
 import { createAdsDepsForRequest } from '@/composition/make-ads-deps';
+import { resolvePreselectedItems } from '@/composition/storefront-preselection';
+import { resolveStorefrontCheckoutCurrency } from '@/composition/storefront-checkout-currency';
+import { CHECKOUT_SESSION_COOKIE } from '@/composition/storefront-runtime';
+import { VARIANT_QUERY_PARAM } from '@/lib/storefront/variant-params';
 
 const logger = createLogger('StorefrontSSR');
 
@@ -28,6 +34,13 @@ const pageSlug = slug || '';
 
 const url = new URL(Astro.request.url);
 const funnelIdFromQuery = url.searchParams.get('funnelId');
+
+// ?_ad=<0-100> opens one depth band from the Interest panel; validate as untrusted
+// URL input (plain integer, clamped) before it ever reaches the client script.
+const depthMarkerRaw = url.searchParams.get('_ad');
+const depthMarker = depthMarkerRaw !== null && /^\d{1,3}$/.test(depthMarkerRaw)
+  ? Math.min(100, Number(depthMarkerRaw))
+  : null;
 
 const pageData = await getStorefrontPageData(pageSlug, funnelIdFromQuery);
 
@@ -66,7 +79,10 @@ const serverGeneratedAnid = (anidFromUrl || anidFromCookie) ? '' : generateServe
 const effectiveTrackingId = anidFromUrl || anidFromCookie || serverGeneratedAnid;
 
 // Server-authoritative visitor cookie; URL ?anid= is a manual override.
-if (effectiveTrackingId) {
+// Skipped on a ?_ad= deep link: that view is an operator inspecting their own
+// page, and looking must not mint an identity that then follows them into
+// real storefront traffic.
+if (effectiveTrackingId && depthMarker === null) {
   Astro.cookies.set('anid', effectiveTrackingId, {
     path: '/',
     httpOnly: false,
@@ -77,11 +93,14 @@ if (effectiveTrackingId) {
 
 // First-touch ad attribution: store click identifiers + cookies keyed by the visitor anid so a
 // later checkout can bridge them onto the sale and the server-side CAPI postback carries them.
+// Same ?_ad= exemption as the cookie above: an operator's own browser routinely
+// holds _fbp/_ga cookies, which would otherwise satisfy hasClickSignal and write
+// a bogus first-touch attribution record on every deep-link click.
 const fbpCookie = Astro.cookies.get('_fbp')?.value;
 const gaCookie = Astro.cookies.get('_ga')?.value;
 const hasClickSignal =
   AD_CLICK_PARAMS.some((p) => url.searchParams.has(p)) || !!fbpCookie || !!gaCookie;
-if (effectiveTrackingId && hasClickSignal) {
+if (effectiveTrackingId && hasClickSignal && depthMarker === null) {
   try {
     const ads = await makeAcquisitionAds(await createAdsDepsForRequest(Astro.locals));
     const existing = await ads.attributionStore.get(`attr:${effectiveTrackingId}`);
@@ -103,7 +122,10 @@ if (effectiveTrackingId && hasClickSignal) {
 
 // Experiment entry-split: only on the funnel entry page (stepIndex 0). `_ab` is the loop guard
 // so the redirected request renders normally instead of redirecting again.
-if (pageData.funnelId && pageData.stepIndex === 0 && !url.searchParams.has('_ab')) {
+// Same ?_ad= exemption as the two blocks above, for two reasons: the split would
+// persist an assignment against a throwaway trackingId, and its redirect would
+// open a variant instead of the page whose depth the operator clicked.
+if (pageData.funnelId && pageData.stepIndex === 0 && !url.searchParams.has('_ab') && depthMarker === null) {
   const assignment = await resolveEntryExperiment({
     funnelId: pageData.funnelId,
     currentPageId: pageData.page.id,
@@ -165,7 +187,10 @@ const htmlUrlParams: Record<string, string> = {};
 if (isHtmlEditor) {
   if (pageData.funnelId) htmlUrlParams.funnelId = pageData.funnelId;
   for (const [key, value] of url.searchParams.entries()) {
-    if (key !== 'anid' && key !== 'goid' && key !== 'funnelId') {
+    // `_ad` is dropped alongside anid: SSR link injection runs independently of
+    // the tracker, so without this the depth marker follows the operator onto
+    // every page they click through to and scroll-jacks each one.
+    if (key !== 'anid' && key !== 'goid' && key !== 'funnelId' && key !== '_ad') {
       htmlUrlParams[key] = value;
     }
   }
@@ -207,6 +232,24 @@ const ssrOrderData = orderId
 
 const needsClientJs = page.type === 'CHECKOUT' || page.type === 'UPSELL';
 
+// Never throws; the response is no-store, so a buyer's preselection cannot be served to another URL.
+const preselectedItems = page.type === 'CHECKOUT' && !isHtmlEditor
+  ? await resolvePreselectedItems(
+      url.searchParams.get(VARIANT_QUERY_PARAM),
+      undefined,
+      resolvedPuckData?.root?.props?.currency,
+    )
+  : null;
+
+const checkoutCurrency = needsClientJs && !isHtmlEditor
+  ? await resolveStorefrontCheckoutCurrency({
+      pageType: page.type,
+      pageCurrency: resolvedPuckData?.root?.props?.currency,
+      sessionCookie: Astro.cookies.get(CHECKOUT_SESSION_COOKIE)?.value ?? null,
+      locals: Astro.locals,
+    })
+  : null;
+
 const ctaQueryParams: Record<string, string> = {};
 if (funnelId) ctaQueryParams.funnelId = funnelId;
 for (const [key, value] of url.searchParams.entries()) {
@@ -218,6 +261,7 @@ const ssrPuckData = funnelCtaUrl
   ? appendQueryParamsToPuckCtaLinks(resolvedPuckData, ctaQueryParams)
   : resolvedPuckData;
 
+const pageLanguage = resolvePageLanguage(resolvedPuckData?.root?.props?.language);
 let staticPuckHtml = '';
 if (!isHtmlEditor && ssrPuckData) {
   try {
@@ -265,9 +309,11 @@ const bodyEndScriptsHtml = isHtmlEditor
     funnelCtaUrl={funnelCtaUrl}
     ssrUrlParams={htmlUrlParams}
     serverGeneratedAnid={serverGeneratedAnid}
+    noTrack={depthMarker !== null}
+    depthMarker={depthMarker}
   />
 ) : (
-  <html lang="en">
+  <html lang={pageLanguage}>
   <head>
     <StorefrontHead
       pageTitle={pageTitle}
@@ -290,6 +336,7 @@ const bodyEndScriptsHtml = isHtmlEditor
       stepIndexValue: stepIndex,
       tenantNameValue: tenantName,
       serverAnid: serverGeneratedAnid,
+      noTrackValue: depthMarker !== null,
     }}>
       window.__AUTONNEL_TENANT_ID__ = tenantId;
       window.__AUTONNEL_API_BASE__ = '';
@@ -298,10 +345,12 @@ const bodyEndScriptsHtml = isHtmlEditor
       window.__AUTONNEL_FUNNEL_PAGE_TYPE__ = funnelPageTypeValue || null;
       window.__AUTONNEL_STEP_INDEX__ = stepIndexValue || 0;
       window.__AUTONNEL_TENANT_NAME__ = tenantNameValue;
+      window.__AUTONNEL_NO_TRACK__ = noTrackValue;
       if (serverAnid) {
         window.__AUTONNEL_SERVER_ANID__ = serverAnid;
       }
     </script>
+    {depthMarker !== null && <DepthMarkerScroll depthMarker={depthMarker} />}
     <Tracking />
 
     <script define:vars={{
@@ -317,8 +366,12 @@ const bodyEndScriptsHtml = isHtmlEditor
       funnelIdValue: funnelId,
       funnelPageTypeValue: funnelPageType,
       stepIndexValue: stepIndex,
+      preselectedItemsValue: preselectedItems,
+      checkoutCurrencyValue: checkoutCurrency,
     }}>
       window.__AUTONNEL_PRODUCTS__ = [];
+      window.__AUTONNEL_PRESELECTED_ITEMS__ = preselectedItemsValue;
+      if (checkoutCurrencyValue) window.__AUTONNEL_CHECKOUT_CURRENCY__ = checkoutCurrencyValue;
       window.__AUTONNEL_PAGE_TYPE__ = pageType;
       window.__AUTONNEL_PAGE_SLUG__ = pageSlugValue;
       window.__CHECKOUT_STATE__ = { customerInfo: null, shippingAddress: null, currentOrderId: null };

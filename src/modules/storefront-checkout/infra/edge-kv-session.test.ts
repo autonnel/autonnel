@@ -24,13 +24,14 @@ function session() {
   return FunnelSession.start({
     sessionId: 'sess_1', tenantId: 'default', snapshotRef: FunnelSnapshotRef.of('fn_1', 1),
     stepSlugs: [StepSlug.of('checkout')], attribution: AttributionSnapshot.empty('sess_1'), entryStep: StepSlug.of('checkout'),
+    market: { countryCode: 'US', currencyCode: 'USD' },
   });
 }
 
 describe('EdgeKvSessionAdapter', () => {
   it('stores under a tenant-prefixed key with a TTL and reloads an equivalent session', async () => {
     const kv = new FakeKv();
-    const adapter = new EdgeKvSessionAdapter({ kv: kv as any, tenantId: 'default', cookieSecret: 's3cr3t' });
+    const adapter = new EdgeKvSessionAdapter({ kv: kv as any, tenantId: 'default', cookieSecret: 's3cr3t', fallbackMarket: { countryCode: 'US', currencyCode: 'USD' } });
     const s = session();
     await adapter.store(s, 3600);
     expect([...kv.store.keys()][0]).toBe('session:default:sess_1');
@@ -43,7 +44,7 @@ describe('EdgeKvSessionAdapter', () => {
 
   it('round-trips a signed cookie value', async () => {
     const kv = new FakeKv();
-    const adapter = new EdgeKvSessionAdapter({ kv: kv as any, tenantId: 'default', cookieSecret: 's3cr3t' });
+    const adapter = new EdgeKvSessionAdapter({ kv: kv as any, tenantId: 'default', cookieSecret: 's3cr3t', fallbackMarket: { countryCode: 'US', currencyCode: 'USD' } });
     const cookie = await adapter.signCookieValue('sess_1');
     expect(await adapter.verifyCookieValue(cookie)).toBe('sess_1');
     expect(await adapter.verifyCookieValue('sess_1.bad')).toBeNull();
@@ -51,7 +52,7 @@ describe('EdgeKvSessionAdapter', () => {
 
   it('round-trips the cart lines and coupon through KV', async () => {
     const kv = new FakeKv();
-    const adapter = new EdgeKvSessionAdapter({ kv: kv as any, tenantId: 'default', cookieSecret: 's3cr3t' });
+    const adapter = new EdgeKvSessionAdapter({ kv: kv as any, tenantId: 'default', cookieSecret: 's3cr3t', fallbackMarket: { countryCode: 'US', currencyCode: 'USD' } });
     const s = session();
     s.addLine(OfferLineItem.create({
       variantExternalId: ExternalRef.of('gid://v/1'),

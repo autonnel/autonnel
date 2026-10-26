@@ -1,3 +1,5 @@
+import { customEventNameOf, isCustomKind } from '@/lib/analytics/custom-event-name';
+
 export const ACTIVITY_KINDS = [
   'page_view',
   'add_to_cart',
@@ -105,6 +107,12 @@ export function normalizeActivityEvent(raw: RawActivityEvent): ActivityEvent {
   const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
   if (!kind) throw new InvalidActivityEventError('kind is required');
   if (kind.length > KIND_MAX_LENGTH) throw new InvalidActivityEventError('kind too long');
+
+  // The custom: namespace is the public tracker's only writable surface, so a malformed
+  // name is refused here rather than becoming an unqueryable row.
+  if (isCustomKind(kind) && !customEventNameOf(kind)) {
+    throw new InvalidActivityEventError('invalid custom event name');
+  }
 
   const visitorId = typeof raw.visitorId === 'string' ? raw.visitorId.trim() : '';
   if (!visitorId) throw new InvalidActivityEventError('visitorId is required');

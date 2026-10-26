@@ -44,7 +44,15 @@ describe('handleCheckoutRequest', () => {
     const surface = fakeSurface();
     const res = await handleCheckoutRequest('cart', { variantExternalId: 'gid://v/1', quantity: 2 }, 'sess_1.sig', surface);
     expect(res.status).toBe(200);
-    expect(surface.addToCart.execute).toHaveBeenCalledWith('sess_1', { variantExternalId: 'gid://v/1', quantity: 2 });
+    expect(surface.addToCart.execute).toHaveBeenCalledWith('sess_1', { variantExternalId: 'gid://v/1', quantity: 2, replace: false });
+  });
+
+  it('forwards replace only when it is literally true', async () => {
+    const surface = fakeSurface();
+    await handleCheckoutRequest('cart', { variantExternalId: 'v', quantity: 1, replace: true }, 'sess_1.sig', surface);
+    await handleCheckoutRequest('cart', { variantExternalId: 'v', quantity: 1, replace: 'true' }, 'sess_1.sig', surface);
+    expect(surface.addToCart.execute).toHaveBeenNthCalledWith(1, 'sess_1', { variantExternalId: 'v', quantity: 1, replace: true });
+    expect(surface.addToCart.execute).toHaveBeenNthCalledWith(2, 'sess_1', { variantExternalId: 'v', quantity: 1, replace: false });
   });
 
   it('maps a thrown domain error to a safe 422 without leaking internals', async () => {
@@ -54,5 +62,14 @@ describe('handleCheckoutRequest', () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toBeDefined();
     expect(JSON.stringify(res.body)).not.toMatch(/stack/i);
+  });
+
+  it('carries the converted coupon minimum on a below-minimum apply', async () => {
+    const { SubtotalBelowMinimumError } = await import('../domain/services/coupon-evaluation-service');
+    const surface = fakeSurface();
+    surface.applyCoupon.execute = vi.fn(async () => { throw new SubtotalBelowMinimumError(6650, 'EUR'); });
+    const res = await handleCheckoutRequest('coupon', { code: 'MIN70' }, 'sess_1.sig', surface);
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ message: 'Subtotal below coupon minimum', minOrder: { amountMinor: 6650, currencyCode: 'EUR' } });
   });
 });

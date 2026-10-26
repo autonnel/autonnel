@@ -2,7 +2,7 @@ import React, { useEffect, useState, type ReactNode } from 'react';
 import { RichBody } from './RichBody';
 import { formatPrice } from './useProductSelection';
 import { scaledFontSize } from '../TextField';
-import { useTranslation } from '../LanguageContext';
+import { useLanguage, useTranslation } from '../LanguageContext';
 import type { Order, OrderItem } from './order-detail-types';
 import {
   getFallbackOrder,
@@ -79,6 +79,7 @@ export function OrderDetailPanel({
   _ssrOrder,
   _ssrResolved = false,
 }: OrderDetailPanelProps) {
+  const language = useLanguage();
   const t = useTranslation();
   const [order, setOrder] = useState<Order | null>(_ssrOrder || null);
   const [loading, setLoading] = useState(!_ssrOrder && !_ssrResolved);
@@ -305,7 +306,7 @@ export function OrderDetailPanel({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <p style={{ fontSize: scaledFontSize(15), fontWeight: 600, color: palette.ink }}>{item.name}</p>
           <p style={{ fontSize: scaledFontSize(15), fontWeight: 700, color: palette.ink, whiteSpace: 'nowrap' }}>
-            {formatPrice(item.price * item.quantity, currency)}
+            {formatPrice(item.price * item.quantity, currency, language)}
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
@@ -357,14 +358,14 @@ export function OrderDetailPanel({
         <div>
           <div style={summaryRow}>
             <span>{t('orderDetails.subtotal')}</span>
-            <span>{formatPrice(order.subtotal, currency)}</span>
+            <span>{formatPrice(order.subtotal, currency, language)}</span>
           </div>
           <div style={summaryRow}>
             <span>{t('orderDetails.shipping')}</span>
             <span>
               {order.shipping === 0
                 ? t('orderDetails.free')
-                : formatPrice(order.shipping, currency)}
+                : formatPrice(order.shipping, currency, language)}
             </span>
           </div>
           {order.discount > 0 && (
@@ -373,7 +374,7 @@ export function OrderDetailPanel({
                 {t('orderDetails.discount')}
                 {order.couponCode ? ` (${order.couponCode})` : ''}
               </span>
-              <span>-{formatPrice(order.discount, currency)}</span>
+              <span>-{formatPrice(order.discount, currency, language)}</span>
             </div>
           )}
           <div style={summaryRow}>
@@ -390,7 +391,7 @@ export function OrderDetailPanel({
             })}
           >
             <span>{t('orderDetails.total')}</span>
-            <span>{formatPrice(order.total, currency)}</span>
+            <span>{formatPrice(order.total, currency, language)}</span>
           </div>
         </div>
       )}

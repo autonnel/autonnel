@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Editor } from 'grapesjs';
 import { ImageAiPanel } from './ImageAiPanel';
 import { tagMediaWithPids, randomPid } from '@/lib/ai/pid-utils';
+import { replaceComponents } from '@/components/grapesjs/replace-components';
 
 interface Props {
   editorRef: React.MutableRefObject<Editor | null>;
@@ -91,7 +92,7 @@ export function ImageAiOverlay({ editorRef, containerRef, pageId }: Props) {
       const html = editor.getHtml();
       const tagged = tagMediaWithPids(html);
       if (tagged !== html) {
-        editor.setComponents(tagged);
+        replaceComponents(editor, tagged);
       }
 
       const updateHover = (target: EventTarget | null) => {
@@ -254,7 +255,7 @@ export function ImageAiOverlay({ editorRef, containerRef, pageId }: Props) {
                 (editor as any).set('changesCount', count + 1);
               } else {
                 open.el.setAttribute('src', url);
-                editor.setComponents(editor.getHtml());
+                replaceComponents(editor, editor.getHtml());
               }
             }}
             onClose={() => setOpen(null)}

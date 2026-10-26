@@ -5,8 +5,9 @@ import { FormInput, FormSelect, AlertBox, Textarea, Checkbox, dsFieldLabelClass 
 import { apiCall, ApiCallError } from '@/lib/api/client';
 import type { LlmModelInput } from '@/contracts/settings';
 import type { LlmModel, LlmModelType } from '@/lib/config/llm-models-types';
+import { WORKERS_AI_BINDING, WORKERS_AI_PROVIDER, WORKERS_AI_REST_BASE_URL_EXAMPLE } from '@/lib/llm/workers-ai-config';
 
-export type DrawerMode = { kind: 'add' } | { kind: 'edit'; row: LlmModel };
+export type DrawerMode = { kind: 'add'; type: LlmModelType } | { kind: 'edit'; row: LlmModel };
 
 interface Props {
   open: boolean;
@@ -18,6 +19,7 @@ interface Props {
 const TEXT_PROVIDERS = [
   { id: 'openai-chat', label: 'OpenAI Chat Completions', baseUrlPlaceholder: 'https://api.openai.com/v1', modelIdPlaceholder: 'gpt-4o' },
   { id: 'anthropic-messages', label: 'Anthropic Messages', baseUrlPlaceholder: 'https://api.anthropic.com', modelIdPlaceholder: 'claude-sonnet-4-5-20250929' },
+  { id: WORKERS_AI_PROVIDER, label: 'Cloudflare Workers AI', baseUrlPlaceholder: WORKERS_AI_REST_BASE_URL_EXAMPLE, modelIdPlaceholder: '@cf/zai-org/glm-4.7-flash' },
 ] as const;
 
 const IMAGE_PROVIDERS = [
@@ -28,6 +30,7 @@ const IMAGE_PROVIDERS = [
   { id: 'replicate',              label: 'Replicate',                  baseUrlPlaceholder: 'https://api.replicate.com',                 modelIdPlaceholder: 'stability-ai/sdxl:abc123…' },
   { id: 'fal',                    label: 'fal.ai',                     baseUrlPlaceholder: 'https://queue.fal.run',                     modelIdPlaceholder: 'fal-ai/flux-pro/v1.1' },
   { id: 'huggingface-inference',  label: 'Hugging Face Inference',     baseUrlPlaceholder: 'https://api-inference.huggingface.co',      modelIdPlaceholder: 'black-forest-labs/FLUX.1-schnell' },
+  { id: WORKERS_AI_PROVIDER,      label: 'Cloudflare Workers AI',      baseUrlPlaceholder: WORKERS_AI_REST_BASE_URL_EXAMPLE,             modelIdPlaceholder: '@cf/black-forest-labs/flux-1-schnell' },
 ] as const;
 
 const VIDEO_PROVIDERS = [
@@ -39,6 +42,8 @@ const VIDEO_PROVIDERS = [
   { id: 'fal-video',         label: 'fal.ai (Video)',               baseUrlPlaceholder: 'https://queue.fal.run',                      modelIdPlaceholder: 'fal-ai/kling-video/v1.5/pro' },
 ] as const;
 
+type WorkersAiTransport = 'binding' | 'rest';
+
 interface FormState {
   type: LlmModelType;
   provider: string;
@@ -49,6 +54,7 @@ interface FormState {
   optionsJson: string;
   isDefault: boolean;
   storedKeyMask: string;
+  workersAiTransport: WorkersAiTransport;
 }
 
 const EMPTY: FormState = {
@@ -57,6 +63,7 @@ const EMPTY: FormState = {
   baseUrl: '', apiKey: '',
   optionsJson: '',
   isDefault: false, storedKeyMask: '',
+  workersAiTransport: 'binding',
 };
 
 function defaultProviderFor(type: LlmModelType): string {
@@ -88,14 +95,17 @@ export default function LlmModelDrawer({ open, mode, onClose, onSaved }: Props) 
         optionsJson: mode.row.options ? JSON.stringify(mode.row.options, null, 2) : '',
         isDefault: mode.row.isDefault === true,
         storedKeyMask: mode.row.apiKey,
+        workersAiTransport: mode.row.baseUrl ? 'rest' : 'binding',
       });
     } else {
-      setForm(EMPTY);
+      setForm({ ...EMPTY, type: mode.type, provider: defaultProviderFor(mode.type) });
     }
   }, [mode]);
 
   const isText = form.type === 'text';
   const isImage = form.type === 'image';
+  const isWorkersAi = form.provider === WORKERS_AI_PROVIDER;
+  const usesBinding = isWorkersAi && form.workersAiTransport === 'binding';
 
   const providers = isText ? TEXT_PROVIDERS : isImage ? IMAGE_PROVIDERS : VIDEO_PROVIDERS;
   const providerMeta =
@@ -130,8 +140,8 @@ export default function LlmModelDrawer({ open, mode, onClose, onSaved }: Props) 
       provider: form.provider,
       name: form.name.trim(),
       modelId: form.modelId.trim(),
-      baseUrl: form.baseUrl.trim(),
-      apiKey: form.apiKey,
+      baseUrl: usesBinding ? '' : form.baseUrl.trim(),
+      apiKey: usesBinding ? '' : form.apiKey,
       ...(options ? { options } : {}),
       isDefault: form.isDefault,
     };
@@ -171,8 +181,7 @@ export default function LlmModelDrawer({ open, mode, onClose, onSaved }: Props) 
   const canSubmit =
     !!form.name.trim() &&
     !!form.modelId.trim() &&
-    !!form.baseUrl.trim() &&
-    (isEdit ? true : !!form.apiKey);
+    (usesBinding || (!!form.baseUrl.trim() && (isEdit ? true : !!form.apiKey)));
 
   return (
     <Drawer
@@ -241,20 +250,39 @@ export default function LlmModelDrawer({ open, mode, onClose, onSaved }: Props) 
           hint="The model identifier sent in API requests."
         />
 
-        <FormInput
-          label="Base URL"
-          value={form.baseUrl}
-          onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-          placeholder={baseUrlPlaceholder}
-        />
+        {isWorkersAi && (
+          <FormSelect
+            label="Transport"
+            value={form.workersAiTransport}
+            onChange={(e) => setForm({ ...form, workersAiTransport: e.target.value as WorkersAiTransport })}
+            hint={usesBinding
+              ? `Uses the "${WORKERS_AI_BINDING}" Workers AI binding of the Cloudflare Worker. No credentials needed; only works when deployed on Cloudflare Workers.`
+              : 'Works on any runtime. Needs an API token with Workers AI permission.'}
+          >
+            <option value="binding">Workers AI binding ({WORKERS_AI_BINDING})</option>
+            <option value="rest">REST API</option>
+          </FormSelect>
+        )}
 
-        <FormInput
-          label="API Key"
-          type="password"
-          value={form.apiKey}
-          onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-          placeholder={apiKeyPlaceholder}
-        />
+        {!usesBinding && (
+          <>
+            <FormInput
+              label="Base URL"
+              value={form.baseUrl}
+              onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+              placeholder={baseUrlPlaceholder}
+              hint={isWorkersAi ? 'Replace <ACCOUNT_ID> with your Cloudflare account ID.' : undefined}
+            />
+
+            <FormInput
+              label={isWorkersAi ? 'API Token' : 'API Key'}
+              type="password"
+              value={form.apiKey}
+              onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+              placeholder={apiKeyPlaceholder}
+            />
+          </>
+        )}
 
         <details>
           <summary className="text-[12.5px] text-ds-muted cursor-pointer select-none">

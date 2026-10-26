@@ -147,6 +147,7 @@ interface UploadFromUrlOptions {
   maxBytes?: number;
   timeoutMs?: number;
   allowedContentTypes?: string[];
+  transformCss?: (css: string) => string;
 }
 
 const URL_CONTENT_TYPE_EXT: Record<string, string> = {
@@ -157,6 +158,9 @@ const URL_CONTENT_TYPE_EXT: Record<string, string> = {
   'image/gif': 'gif',
   'video/mp4': 'mp4',
   'video/webm': 'webm',
+  'text/css': 'css',
+  'text/javascript': 'js',
+  'application/javascript': 'js',
 };
 
 export async function uploadFromUrl(
@@ -178,7 +182,7 @@ export async function uploadFromUrl(
     throw new Error(`Failed to fetch ${url}: ${resp.status} ${resp.statusText}`);
   }
 
-  const buffer = await resp.arrayBuffer();
+  let buffer: ArrayBuffer | Uint8Array = await resp.arrayBuffer();
   const contentType = resp.headers.get('content-type') || 'application/octet-stream';
   const normalized = contentType.split(';', 1)[0].trim().toLowerCase();
 
@@ -186,11 +190,15 @@ export async function uploadFromUrl(
     throw new Error(`Downloaded content type not allowed: ${normalized}`);
   }
 
+  if (opts.transformCss && normalized === 'text/css') {
+    buffer = new TextEncoder().encode(opts.transformCss(new TextDecoder().decode(buffer)));
+  }
+
   let ext: string;
   if (URL_CONTENT_TYPE_EXT[normalized]) {
     ext = URL_CONTENT_TYPE_EXT[normalized];
-  } else if (url.includes('.')) {
-    ext = url.split('.').pop()?.split('?')[0] || 'bin';
+  } else if (/\.\w+$/.test(new URL(url).pathname)) {
+    ext = new URL(url).pathname.split('.').pop() || 'bin';
   } else {
     ext = 'bin';
   }

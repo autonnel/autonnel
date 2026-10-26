@@ -36,6 +36,7 @@ export async function setConfig(key: string, value: unknown): Promise<void> {
 export async function deleteConfig(key: string): Promise<void> {
   const { setConfig: svc } = makePlatform();
   await svc.set(key, null);
+  _configMemo.delete(memoKey(key));
 }
 
 // Read-modify-write of a nested path inside a JSON config document. Done in JS (not

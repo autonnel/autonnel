@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { acceptUpsell, declineUpsell } from '@/composition/make-upsell';
+import { checkoutRequestInfo } from '@/composition/payment-request-context';
 import { ownsSale, SALE_OWNERSHIP_DENIED } from '@/lib/storefront/sale-ownership';
 import type { ShopUpsellInput, ShopUpsellDto } from '@/contracts/shop';
 import { createLogger } from '@/lib/logger';
@@ -15,7 +16,8 @@ function json(body: ShopUpsellDto, status = 200): Response {
 // Public shopper endpoint: one-click post-purchase upsell accept/decline for a paid order.
 // parentOrderId travels in the browser URL after checkout, so it authorizes nothing — the signed
 // checkout-session cookie must link exactly this sale before any charge, PATCH or capture.
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async (ctx) => {
+  const { request, locals } = ctx;
   const body = (await request.json().catch(() => ({}))) as Partial<ShopUpsellInput>;
   if (!body.parentOrderId || !body.trackingId || (body.action !== 'accept' && body.action !== 'decline')) {
     return json({ success: false, error: 'parentOrderId, trackingId and a valid action are required' }, 400);
@@ -29,7 +31,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
   try {
     const input = body as ShopUpsellInput;
-    const dto = input.action === 'accept' ? await acceptUpsell(input, locals) : await declineUpsell(input, locals);
+    const requestInfo = checkoutRequestInfo(request, (() => { try { return ctx.clientAddress; } catch { return undefined; } })(), {});
+    const dto = input.action === 'accept' ? await acceptUpsell(input, locals, requestInfo) : await declineUpsell(input, locals);
     return json(dto);
   } catch (err) {
     logger.error('Upsell request failed', { error: err, saleRef: body.parentOrderId, action: body.action });

@@ -9,6 +9,18 @@ import {
   type UpdateEmailConfigInput,
 } from '@/lib/repositories/email.repository';
 import type { EmailConfigWire } from '@/contracts/settings';
+import { isCloudflareRuntime } from '@/lib/runtime/env';
+
+const PROVIDERS = ['SMTP', 'RESEND', 'CLOUDFLARE'] as const;
+const PROVIDER_NAME: Record<(typeof PROVIDERS)[number], string> = {
+  SMTP: 'SMTP Configuration',
+  RESEND: 'Resend Configuration',
+  CLOUDFLARE: 'Cloudflare Email Configuration',
+};
+
+function mask(secret: string): string {
+  return secret.slice(0, 4) + '••••••••';
+}
 
 const repo = getEmailConfigRepository();
 
@@ -44,7 +56,10 @@ export const GET = defineRoute('GET /api/settings/email', { feature: 'SETTINGS_E
         password: '••••••••',
       };
     } else if (config.provider === 'RESEND' && 'apiKey' in creds) {
-      maskedCredentials = { apiKey: (creds.apiKey as string).slice(0, 4) + '••••••••' };
+      maskedCredentials = { apiKey: mask(creds.apiKey as string) };
+    } else if (config.provider === 'CLOUDFLARE') {
+      const cf = creds as { accountId?: string; apiToken?: string };
+      maskedCredentials = cf.apiToken ? { accountId: cf.accountId, apiToken: mask(cf.apiToken) } : {};
     }
   }
   return toWire(config, maskedCredentials);
@@ -52,15 +67,21 @@ export const GET = defineRoute('GET /api/settings/email', { feature: 'SETTINGS_E
 
 export const PUT = defineRoute('PUT /api/settings/email', { feature: 'SETTINGS_EMAIL', status: 200 }, async ({ input }): Promise<EmailConfigWire> => {
   const { provider, credentials, fromEmail, fromName, replyTo, isActive } = input ?? {};
+  if (provider === 'SMTP' && isCloudflareRuntime()) throw new ApiError(400, 'SMTP cannot send from Cloudflare Workers; use CLOUDFLARE or RESEND');
   const existing = await repo.find();
 
   if (existing) {
     const updateData: UpdateEmailConfigInput = {};
     if (provider !== undefined) {
+      if (!PROVIDERS.includes(provider)) throw new ApiError(400, `Invalid provider. Must be one of ${PROVIDERS.join(', ')}`);
       updateData.provider = provider;
-      updateData.name = provider === 'SMTP' ? 'SMTP Configuration' : 'Resend Configuration';
+      updateData.name = PROVIDER_NAME[provider];
     }
     if (credentials !== undefined) updateData.credentials = credentials as UpdateEmailConfigInput['credentials'];
+    if ((provider ?? existing.provider) === 'CLOUDFLARE') {
+      const stored = (await repo.findWithCredentials())?.credentials as Record<string, unknown> | undefined;
+      validateCloudflareCredentials({ ...stored, ...credentials });
+    }
     if (fromEmail !== undefined) updateData.fromEmail = fromEmail;
     if (fromName !== undefined) updateData.fromName = fromName;
     if (replyTo !== undefined) updateData.replyTo = replyTo;
@@ -69,7 +90,7 @@ export const PUT = defineRoute('PUT /api/settings/email', { feature: 'SETTINGS_E
     return toWire(updated);
   }
 
-  if (!provider || !['SMTP', 'RESEND'].includes(provider)) throw new ApiError(400, 'Invalid provider. Must be SMTP or RESEND');
+  if (!provider || !PROVIDERS.includes(provider)) throw new ApiError(400, `Invalid provider. Must be one of ${PROVIDERS.join(', ')}`);
   if (!fromEmail) throw new ApiError(400, 'fromEmail is required');
   if (!credentials) throw new ApiError(400, 'credentials are required');
   const c = credentials as Record<string, unknown>;
@@ -77,11 +98,13 @@ export const PUT = defineRoute('PUT /api/settings/email', { feature: 'SETTINGS_E
     if (!c.host || !c.port || !c.username || !c.password) throw new ApiError(400, 'SMTP requires host, port, username, and password');
   } else if (provider === 'RESEND') {
     if (!c.apiKey) throw new ApiError(400, 'Resend requires apiKey');
+  } else {
+    validateCloudflareCredentials(c);
   }
 
   const createInput: CreateEmailConfigInput = {
     provider,
-    name: provider === 'SMTP' ? 'SMTP Configuration' : 'Resend Configuration',
+    name: PROVIDER_NAME[provider],
     credentials: credentials as unknown as CreateEmailConfigInput['credentials'],
     fromEmail,
     fromName,
@@ -90,6 +113,13 @@ export const PUT = defineRoute('PUT /api/settings/email', { feature: 'SETTINGS_E
   const created = await repo.upsert(createInput);
   return toWire(created);
 });
+
+// Both blank selects the Workers send_email binding; a REST fallback needs both values.
+function validateCloudflareCredentials(c: Record<string, unknown>): void {
+  if (Boolean(c.accountId) !== Boolean(c.apiToken)) {
+    throw new ApiError(400, 'Cloudflare Email requires both accountId and apiToken, or neither to use the EMAIL binding');
+  }
+}
 
 export const DELETE: APIRoute = withAuth(FEATURES.SETTINGS_EMAIL, async () => {
   await repo.delete();

@@ -117,3 +117,34 @@ describe('POST /api/settings/llm/test — stored-key reuse', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('POST /api/settings/llm/test — workers-ai', () => {
+  it('binding mode needs no credentials and never replays a stored key', async () => {
+    h.rows.push({
+      type: 'text', provider: 'workers-ai', name: 'cf', modelId: '@cf/zai-org/glm-4.7-flash',
+      baseUrl: `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/v1`, apiKey: 'cf-SECRET',
+    });
+    const res = (await call({
+      type: 'text', provider: 'workers-ai', name: 'cf', modelId: '@cf/zai-org/glm-4.7-flash',
+      baseUrl: '', apiKey: '',
+    })) as Response;
+    expect(res.status).toBe(200);
+    expect(h.probes[0]).toMatchObject({ baseUrl: '', apiKey: '' });
+  });
+
+  it('rejects a REST base URL that is not an account-scoped Workers AI URL', async () => {
+    const res = (await call({
+      type: 'text', provider: 'workers-ai', name: 'cf', modelId: '@cf/zai-org/glm-4.7-flash',
+      baseUrl: 'https://attacker.example.com/ai/v1', apiKey: 'tok',
+    })) as Response;
+    expect(res.status).toBe(400);
+    expect(h.probes).toHaveLength(0);
+  });
+
+  it('still requires a base URL for other providers', async () => {
+    const res = (await call({
+      type: 'text', provider: 'openai', name: 'x', modelId: 'gpt-4o', baseUrl: '', apiKey: 'sk',
+    })) as Response;
+    expect(res.status).toBe(400);
+  });
+});

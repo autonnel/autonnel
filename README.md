@@ -98,7 +98,7 @@ store connected to boot it. Those are configured later in the admin UI under
 | Product and order data | Ecommerce: Shopify, WooCommerce or Picocart |
 | Taking payments | Payments: Stripe or PayPal |
 | Media uploads | Storage: any S3-compatible bucket (R2, S3, MinIO, ...) |
-| Receipts, recall emails | Email: SMTP, Resend or AWS SES |
+| Receipts, recall emails | Email: SMTP, Resend, Cloudflare Email or AWS SES |
 | AI page generation | LLM: any OpenAI-compatible endpoint |
 
 Before putting it on a public host, set your own secrets in a `.env` file next
@@ -179,6 +179,7 @@ ADMIN_DOMAIN="admin.example.com"      # hostnames serving the admin UI
 AUTH_SESSION_SECRET="..."             # required in production, openssl rand -hex 32
 CREDENTIALS_ENCRYPTION_KEY="..."      # required in production, openssl rand -base64 32
 CRON_KEY="..."                        # optional, protects the HTTP cron endpoints
+AUTONNEL_SCHEDULER=off                # optional, Node only: disable the built-in 5-minute scheduler
 LOG_LEVEL=info                        # optional: debug | info | warn | error
 DEFAULT_CURRENCY=USD                  # optional storefront fallback
 REDIS_URL="redis://..."               # optional, Node only; Workers use KV
@@ -189,8 +190,8 @@ platforms, branding and domains are all configured under **Settings** in the
 admin UI, per install. Full reference:
 [Configuration](https://autonnel.com/docs/getting-started/configuration).
 
-Custom auth and OAuth ad flows are available through plugins
-(e.g. `@autonnel/plugin-oauth2`, `@autonnel/plugin-ads`).
+Ad-platform OAuth, ad spend sync and funnel reconciliation are built in.
+OAuth/OIDC login is available through `@autonnel/plugin-oauth2`.
 
 ## Deploy to Cloudflare Workers
 
@@ -236,7 +237,7 @@ docker compose exec app node dist/cli/index.js admin:create you@example.com 'a-s
 ## Supported providers
 
 - **Payments**: PayPal, Stripe
-- **Email**: SMTP, AWS SES, Resend
+- **Email**: SMTP, AWS SES, Resend, Cloudflare Email
 - **E-commerce**: Shopify, WooCommerce, Picocart (Autonnel's own self-hostable
   commerce backend, a drop-in alternative to Shopify/WooCommerce)
 
@@ -260,7 +261,6 @@ picks up the workflows without extra prompting.
 - [autonnel](https://github.com/autonnel/autonnel) - this repository, the funnel builder
 - [picocart](https://github.com/autonnel/picocart) - open-source headless commerce backend, Shopify-API compatible
 - [plugin-oauth2](https://github.com/autonnel/plugin-oauth2) - OAuth/OIDC login provider
-- [plugin-ads](https://github.com/autonnel/plugin-ads) - ad-platform OAuth connectors
 
 ## Contributing
 

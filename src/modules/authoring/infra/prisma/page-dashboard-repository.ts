@@ -138,36 +138,59 @@ export class PrismaPageDashboardRepository implements PageDashboardRepositoryPor
   async update(pageId: string, input: UpdatePageInput): Promise<PageDetailRow> {
     const current = await this.db.page.findFirst({ where: { id: pageId } });
     if (!current) throw new Error('Page not found');
+    const row = current as unknown as DetailSelectRow;
     const data: Prisma.PageUncheckedUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.slug !== undefined) data.slug = input.slug;
-    if (input.draftData !== undefined) data.draftData = input.draftData as Prisma.InputJsonValue;
-    if (input.publishedData !== undefined) data.publishedData = input.publishedData as Prisma.InputJsonValue;
-    if (input.htmlContent !== undefined) data.htmlContent = input.htmlContent;
-    if (input.draftHtml !== undefined) data.draftHtml = input.draftHtml;
-    if (input.draftSettings !== undefined) data.draftSettings = input.draftSettings as Prisma.InputJsonValue;
-    if (input.settings !== undefined) data.settings = input.settings as Prisma.InputJsonValue;
     if (input.meta !== undefined) data.meta = input.meta as Prisma.InputJsonValue;
     if (input.planContent !== undefined) data.planContent = input.planContent as Prisma.InputJsonValue;
+
+    // Every content column is a draft/live pair (draftData/publishedData, draftHtml/htmlContent,
+    // draftSettings/settings). Writing one half without the other lets the next publish promote the
+    // stale half over content that already landed, which reads as "the API returned 200 but the page
+    // never changed", so a write to either half carries its twin unless the caller set both.
+    if (input.draftData !== undefined) data.draftData = input.draftData as Prisma.InputJsonValue;
+    if (input.publishedData !== undefined) {
+      data.publishedData = input.publishedData as Prisma.InputJsonValue;
+      if (input.draftData === undefined) data.draftData = input.publishedData as Prisma.InputJsonValue;
+    }
+    if (input.htmlContent !== undefined) {
+      data.htmlContent = input.htmlContent;
+      if (input.draftHtml === undefined) data.draftHtml = input.htmlContent;
+    }
+    if (input.draftHtml !== undefined) data.draftHtml = input.draftHtml;
+    if (input.settings !== undefined) {
+      data.settings = input.settings as Prisma.InputJsonValue;
+      if (input.draftSettings === undefined) data.draftSettings = input.settings as Prisma.InputJsonValue;
+    }
+    if (input.draftSettings !== undefined) data.draftSettings = input.draftSettings as Prisma.InputJsonValue;
 
     if (input.status !== undefined) {
       data.status = input.status;
       if (input.status === 'PUBLISHED') {
         data.publishedAt = new Date();
-        const row = current as unknown as DetailSelectRow;
-        if (input.publishedData === undefined && input.draftData === undefined) {
-          data.publishedData = (row.draftData ?? undefined) as Prisma.InputJsonValue | undefined;
+        // Publishing promotes whatever this same request is writing first: content and
+        // publish:true arriving together is the common single-call API/MCP shape, and reading
+        // only the stored draft there would publish the previous revision.
+        if (input.publishedData === undefined) {
+          const promoted = input.draftData ?? row.draftData ?? undefined;
+          if (promoted !== null && promoted !== undefined) {
+            data.publishedData = promoted as Prisma.InputJsonValue;
+          }
         }
-        if (row.editorType === 'HTML') {
-          const html = input.draftHtml ?? row.draftHtml ?? row.htmlContent ?? undefined;
-          const settings = (input.draftSettings ?? row.draftSettings ?? row.settings ?? undefined) as
-            | Prisma.InputJsonValue
-            | undefined;
-          if (html !== undefined) {
+        // GRAPESJS is HTML-backed too, so it promotes through the same pair.
+        if (row.editorType !== 'PUCK') {
+          const html = input.draftHtml ?? input.htmlContent ?? row.draftHtml ?? row.htmlContent ?? undefined;
+          const settings = (input.draftSettings ??
+            input.settings ??
+            row.draftSettings ??
+            row.settings ??
+            undefined) as Prisma.InputJsonValue | undefined;
+          if (html !== undefined && html !== null) {
             data.htmlContent = html;
             data.draftHtml = html;
           }
-          if (settings !== undefined) {
+          if (settings !== undefined && settings !== null) {
             data.settings = settings;
             data.draftSettings = settings;
           }

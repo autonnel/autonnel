@@ -82,4 +82,22 @@ describe('FunnelComposingService', () => {
     expect(funnel.entryStepSlug).toBe('upsell');
     expect(funnels.save).toHaveBeenCalledOnce();
   });
+
+  it('publishes a snapshot after saving and before emitting events', async () => {
+    const funnel = Funnel.create({ id: 'f1', name: 'F' });
+    const order: string[] = [];
+    const funnels = { load: vi.fn().mockResolvedValue(funnel), save: vi.fn(async () => { order.push('save'); }), lastPublishedVersion: vi.fn() };
+    const pages = { exists: vi.fn().mockResolvedValue(true) };
+    const events = { publish: vi.fn(async () => { order.push('events'); }) };
+    const publisher = { publish: vi.fn(async () => { order.push('publish'); }) };
+    const sut = new FunnelComposingService({ funnels, pages, events, publisher });
+
+    await sut.addStep({ funnelId: 'f1', stepSlug: 'lp', pageId: 'p1' });
+    await sut.setStepSlug({ funnelId: 'f1', pageId: 'p1', stepSlug: 'landing' });
+    await sut.removeStep({ funnelId: 'f1', pageId: 'p1' });
+
+    expect(publisher.publish).toHaveBeenCalledTimes(3);
+    expect(publisher.publish).toHaveBeenCalledWith(funnel);
+    expect(order.slice(0, 3)).toEqual(['save', 'publish', 'events']);
+  });
 });

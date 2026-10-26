@@ -88,7 +88,7 @@ export default function NewFunnelModal() {
       });
       clearNewParam();
       if (funnel?.id) {
-        window.location.href = `/funnel/${funnel.id}`;
+        window.location.href = `/funnel/${funnel.id}/pages?next=landing`;
       } else {
         window.location.href = '/funnels';
       }

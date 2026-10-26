@@ -1,5 +1,5 @@
 // Each entry's key in the AppConfig KV doc is independent so concurrent writes to PAYPAL and STRIPE cannot lose each other's changes.
-export type PaymentProvider = 'PAYPAL' | 'STRIPE';
+export type PaymentProvider = string;
 import {
   getConfig,
   deleteConfig,

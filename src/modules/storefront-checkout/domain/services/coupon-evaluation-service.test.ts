@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Money } from '@/modules/shared-kernel/money';
-import { CouponEvaluationService } from './coupon-evaluation-service';
+import { CouponEvaluationService, SubtotalBelowMinimumError } from './coupon-evaluation-service';
 
 describe('CouponEvaluationService', () => {
   const svc = new CouponEvaluationService();
@@ -20,5 +20,17 @@ describe('CouponEvaluationService', () => {
     expect(() =>
       svc.evaluate({ code: 'F', kind: 'fixed', value: 100, minSubtotalMinor: 5000 }, Money.of(2000, 'USD')),
     ).toThrow(/minimum/i);
+  });
+
+  it('reports the minimum in the cart currency when the subtotal is below it', () => {
+    let caught: unknown;
+    try {
+      svc.evaluate({ code: 'F', kind: 'fixed', value: 100, minSubtotalMinor: 6650 }, Money.of(6599, 'EUR'));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SubtotalBelowMinimumError);
+    expect((caught as SubtotalBelowMinimumError).minOrder).toEqual({ amountMinor: 6650, currencyCode: 'EUR' });
+    expect((caught as Error).message).toBe('Subtotal below coupon minimum');
   });
 });

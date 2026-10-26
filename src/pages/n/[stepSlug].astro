@@ -1,6 +1,8 @@
 ---
 import { renderStepForRequest } from '@/composition/render-funnel-step';
 import CheckoutIsland from '@/components/storefront/CheckoutIsland.tsx';
+import { resolvePageLanguage } from '@/lib/i18n/format-money';
+import LinkParams from '@/components/storefront/LinkParams.astro';
 
 export const prerender = false;
 
@@ -12,6 +14,8 @@ try {
 } catch {
   return new Response('Not found', { status: 404 });
 }
+
+const pageLanguage = resolvePageLanguage(/data-language="([a-z]{2})"/.exec(result.html)?.[1]);
 
 function readAnidFromCookie(header: string | null): string {
   if (!header) return '';
@@ -38,12 +42,13 @@ Astro.response.headers.append(
 );
 ---
 <!doctype html>
-<html lang="en">
+<html lang={pageLanguage}>
   <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
   <body>
     <!-- Static published HTML rendered server-side (zero JS) -->
     <Fragment set:html={result.html} />
     <script is:inline define:vars={{ anid }}>window.__AUTONNEL_SERVER_ANID__ = anid;</script>
+    <LinkParams />
     <!-- Only interactive checkout components hydrate as Islands -->
     <CheckoutIsland
       client:load

@@ -36,6 +36,7 @@ export const EVENT = {
   couponApplied: 'autonnel:couponApplied',
   couponRemoved: 'autonnel:couponRemoved',
   summaryChange: 'autonnel:orderSummaryChange',
+  cartLineRejected: 'autonnel:cartLineRejected',
 } as const;
 
 export const PALETTE = {

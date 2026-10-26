@@ -108,11 +108,22 @@ describe("ReadStorefrontCatalogService", () => {
     expect(product?.currencyCode).toBe("USD");
   });
 
-  it("falls back to any available price when no currency matches", async () => {
+  it("falls back to any available price when no currency is requested", async () => {
     const svc = new ReadStorefrontCatalogService(fakeStore());
-    const product = await svc.getByRef("gid://p/1", { currencyCode: "GBP" });
+    const product = await svc.getByRef("gid://p/1", {});
     expect(product?.priceMinor).toBe(1999);
     expect(product?.currencyCode).toBe("USD");
+  });
+
+  it("does not fall back to another currency when one is requested", async () => {
+    const svc = new ReadStorefrontCatalogService(fakeStore());
+    const product = await svc.getByRef("gid://p/1", { currencyCode: "GBP", countryCode: "GB" });
+    expect(product?.priceMinor).toBeNull();
+    expect(product?.currencyCode).toBeNull();
+    expect(product?.comparePriceMinor).toBeNull();
+    expect(product?.variants[0].priceMinor).toBeNull();
+    expect(product?.variants[0].currencyCode).toBeNull();
+    expect(product?.variants[0].comparePriceMinor).toBeNull();
   });
 
   it("returns null priceMinor when the projection has no prices", async () => {

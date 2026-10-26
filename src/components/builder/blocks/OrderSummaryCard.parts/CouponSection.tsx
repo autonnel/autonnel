@@ -1,22 +1,30 @@
 import React from 'react';
 import { TicketPercent } from 'lucide-react';
 import { scaledFontSize } from '../../TextField';
+import { useLanguage, usePageCurrency, useTranslation } from '../../LanguageContext';
+import { formatMoney } from '@/lib/i18n/format-money';
 import { PALETTE, type AppliedCoupon, type Translate } from './types';
 
-function couponHeadline(coupon: AppliedCoupon): string | null {
+const DEFAULT_CURRENCY = 'USD';
+
+function couponHeadline(coupon: AppliedCoupon, currency: string, language: string): string | null {
   if (coupon.discountType === 'PERCENTAGE') return `${Number(coupon.discountValue)}%`;
-  if (coupon.discountValue) return `$${Number(coupon.discountValue)}`;
+  if (coupon.discountValue) return formatMoney(Number(coupon.discountValue), currency || DEFAULT_CURRENCY, language);
   return null;
 }
 
 function CouponBadgeGraphic({
   coupon,
   backgroundColor,
+  currency,
 }: {
   coupon: AppliedCoupon;
   backgroundColor: string;
+  currency: string;
 }) {
-  const headline = couponHeadline(coupon);
+  const language = useLanguage();
+  const t = useTranslation();
+  const headline = couponHeadline(coupon, currency, language);
   const panelWidth = headline ? 90 : 56;
 
   const punchHole = (position: 'top' | 'bottom'): React.CSSProperties => ({
@@ -68,7 +76,7 @@ function CouponBadgeGraphic({
                 marginTop: 2,
               }}
             >
-              OFF
+              {t('coupon.off')}
             </div>
           </>
         ) : (
@@ -84,12 +92,15 @@ function CouponBadgeGraphic({
 function AppliedCouponCard({
   coupon,
   backgroundColor,
+  currency,
   onRemove,
 }: {
   coupon: AppliedCoupon;
   backgroundColor: string;
+  currency: string;
   onRemove: () => void;
 }) {
+  const t = useTranslation();
   return (
     <div
       style={{
@@ -100,7 +111,7 @@ function AppliedCouponCard({
         position: 'relative',
       }}
     >
-      <CouponBadgeGraphic coupon={coupon} backgroundColor={backgroundColor} />
+      <CouponBadgeGraphic coupon={coupon} backgroundColor={backgroundColor} currency={currency} />
       <div
         style={{
           flex: 1,
@@ -124,7 +135,7 @@ function AppliedCouponCard({
               marginBottom: 3,
             }}
           >
-            Coupon Applied
+            {t('coupon.applied')}
           </div>
           <div
             style={{
@@ -143,7 +154,7 @@ function AppliedCouponCard({
         <button
           type="button"
           onClick={onRemove}
-          title="Remove coupon"
+          title={t('coupon.removeTitle')}
           style={{
             background: 'rgba(22, 163, 74, 0.1)',
             border: '1px solid rgba(22, 163, 74, 0.2)',
@@ -158,7 +169,7 @@ function AppliedCouponCard({
             transition: 'background 0.2s',
           }}
         >
-          Remove
+          {t('coupon.remove')}
         </button>
       </div>
     </div>
@@ -238,6 +249,7 @@ function CouponEntry({
 export function CouponSection({
   coupon,
   backgroundColor,
+  currency,
   borderColor,
   code,
   setCode,
@@ -249,6 +261,7 @@ export function CouponSection({
 }: {
   coupon: AppliedCoupon | null;
   backgroundColor: string;
+  currency?: string;
   borderColor: string;
   code: string;
   setCode: (value: string) => void;
@@ -258,10 +271,11 @@ export function CouponSection({
   onRemove: () => void;
   t: Translate;
 }) {
+  const pageCurrency = usePageCurrency();
   return (
     <div style={{ marginBottom: 20 }}>
       {coupon ? (
-        <AppliedCouponCard coupon={coupon} backgroundColor={backgroundColor} onRemove={onRemove} />
+        <AppliedCouponCard coupon={coupon} backgroundColor={backgroundColor} currency={currency ?? pageCurrency} onRemove={onRemove} />
       ) : (
         <CouponEntry
           code={code}

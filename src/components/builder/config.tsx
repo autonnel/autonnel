@@ -2,7 +2,8 @@ import React from 'react';
 import type { Config } from '@puckeditor/core';
 import { builderExtensions } from 'virtual:autonnel/builder-ext';
 import { mergePuckComponents, mergeCategories } from './merge-extensions';
-import { LanguageProvider } from './LanguageContext';
+import { LanguageProvider, CurrencyProvider } from './LanguageContext';
+import { createPageCurrencyField } from './fields/PageCurrencyField';
 import { LANGUAGE_OPTIONS } from './translations';
 import {
   HeroPanel, HeroPanelConfig,
@@ -134,6 +135,7 @@ interface RootProps {
   fontSize?: string;
   labelFontWeight?: string;
   language?: string;
+  currency?: string;
   fontLinks?: string[];
   children?: React.ReactNode;
 }
@@ -231,6 +233,7 @@ function RootWrapper({
   fontSize = '1',
   labelFontWeight = '700',
   language = 'en',
+  currency = '',
   fontLinks = [],
   children,
 }: RootProps) {
@@ -261,10 +264,12 @@ function RootWrapper({
 
   return (
     <LanguageProvider value={language || 'en'}>
+      <CurrencyProvider value={currency || ''}>
       <div
         className="landing-page"
         data-max-width={maxWidth}
         data-language={language}
+        data-currency={currency}
         style={outerStyle}
       >
         {googleFontHref && <link rel="stylesheet" href={googleFontHref} />}
@@ -278,6 +283,7 @@ function RootWrapper({
           {children}
         </div>
       </div>
+      </CurrencyProvider>
     </LanguageProvider>
   );
 }
@@ -428,6 +434,7 @@ const rawPuckConfig = {
         label: 'Page Language',
         options: LANGUAGE_OPTIONS.map((o) => ({ label: o.label, value: o.value })),
       },
+      currency: createPageCurrencyField(),
     },
     defaultProps: {
       maxWidth: 'none',
@@ -435,6 +442,7 @@ const rawPuckConfig = {
       fontSize: '1',
       labelFontWeight: '700',
       language: 'en',
+      currency: '',
     },
     render: RootWrapper,
   },

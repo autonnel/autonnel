@@ -63,7 +63,7 @@ export function ModalHeader({ onClose }: { onClose: () => void }) {
 }
 
 export function RegionSelector({ h }: { h: SelectionHandle }) {
-  if (h.regions.length <= 1) return null;
+  if (h.pageCurrency || h.regions.length <= 1) return null;
 
   return (
     <div style={{

@@ -89,3 +89,32 @@ export async function consumeOAuthState(
   // the state, so an attacker cannot pre-seed an account id here.
   return { platform: payload.platform, externalAccountId: '' };
 }
+
+// The hosted OAuth relay posts back cross-site (a top-level form submit, not a redirect), so no
+// SameSite=Lax session cookie arrives and there is no principal to compare against. The signed
+// state itself is the sole authority here: unforgeable (HMAC over the session secret), single-use
+// (the nonce is consumed on read), 10-minute TTL, and it carries the tenant and user that started
+// the flow. Callers MUST do the rest of the work inside that tenant (see runWithTenant).
+export async function consumeRelayState(
+  state: string,
+): Promise<{ platform: string; tenantId: string; userId: string }> {
+  const dot = state.lastIndexOf('.');
+  if (dot < 0) throw new OAuthStateError('malformed');
+  const body = state.slice(0, dot);
+  const signature = state.slice(dot + 1);
+  if (!constantTimeEqual(await sign(body), signature)) throw new OAuthStateError('bad signature');
+
+  let payload: StatePayload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as StatePayload;
+  } catch {
+    throw new OAuthStateError('unreadable payload');
+  }
+
+  const cache = getCache();
+  const record = await cache.get<{ tenantId: string; userId: string }>(NONCE_PREFIX + payload.nonce);
+  if (!record) throw new OAuthStateError('unknown or already-used state');
+  await cache.delete(NONCE_PREFIX + payload.nonce);
+
+  return { platform: payload.platform, tenantId: payload.tenantId, userId: payload.userId };
+}

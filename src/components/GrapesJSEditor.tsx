@@ -14,6 +14,7 @@ import gjsBlocksBasic from 'grapesjs-blocks-basic';
 import 'grapesjs/dist/css/grapes.min.css';
 import '@/styles/grapesjs-ds-theme.css';
 import { registerAllTraits } from '@/components/grapesjs/traits';
+import { tolerantPostcssParser } from '@/components/grapesjs/css-repair';
 import { getInitialScriptsOn, persistScriptsOn } from '@/components/grapesjs/canvasScripts';
 import { tagMediaWithPids } from '@/lib/ai/pid-utils';
 import { apiCall } from '@/lib/api/client';
@@ -34,6 +35,7 @@ import {
   hideNativePane,
   showNativePane,
 } from '@/components/grapesjs/editor-setup';
+import { replaceComponents } from '@/components/grapesjs/replace-components';
 
 export interface GrapesJSEditorRef {
   openImportModal(): void;
@@ -128,9 +130,9 @@ const GrapesJSEditor = forwardRef<GrapesJSEditorRef, GrapesJSEditorProps>(functi
       const cssToLoad = initialCss || css.trim();
       const cleanContent = withoutStyles;
 
-      editor.setComponents(cleanContent);
+      replaceComponents(editor, cleanContent);
       const tagged = tagMediaWithPids(editor.getHtml());
-      editor.setComponents(tagged);
+      replaceComponents(editor, tagged);
       if (cssToLoad) editor.setStyle(cssToLoad);
     },
     [initialCss, onSaveBodyScripts],
@@ -151,7 +153,15 @@ const GrapesJSEditor = forwardRef<GrapesJSEditorRef, GrapesJSEditorProps>(functi
       storageManager: false,
       avoidInlineStyle: false,
       forceClass: false,
-      plugins: [gjsBlocksBasic, gjsPresetWebpage],
+      // For an imported page the stylesheet is the source of truth, not the component tree:
+      // getCss() otherwise emits only rules it managed to match to a component and silently
+      // drops the rest, which turns a save into partial CSS loss.
+      keepUnusedStyles: true,
+      // GrapesJS reads declarations off a CSSStyleDeclaration by iterating longhands, so a
+      // shorthand whose value is a var() reference (`background: var(--x)`) reads back as
+      // nine empty longhands and the declaration is dropped; a rule left with none of its
+      // declarations disappears entirely. This parser keeps declaration text verbatim.
+      plugins: [tolerantPostcssParser, gjsBlocksBasic, gjsPresetWebpage],
       pluginsOpts: {
         [gjsBlocksBasic as any]: { flexGrid: true },
         [gjsPresetWebpage as any]: {
@@ -259,7 +269,7 @@ const GrapesJSEditor = forwardRef<GrapesJSEditorRef, GrapesJSEditorProps>(functi
         if (doc) {
           doc.querySelectorAll('script[data-gjs-injected]').forEach((el) => el.remove());
         }
-        ed.setComponents(ed.getHtml());
+        replaceComponents(ed, ed.getHtml());
         ed.setStyle(ed.getCss() || '');
         persistScriptsOn(pageId, false);
       },
@@ -371,7 +381,7 @@ const GrapesJSEditor = forwardRef<GrapesJSEditorRef, GrapesJSEditorProps>(functi
         editor.runCommand('show-agent');
       }
 
-      editor.setComponents(tagMediaWithPids(editor.getHtml()));
+      replaceComponents(editor, tagMediaWithPids(editor.getHtml()));
       setIsEditorReady(true);
     });
 
@@ -429,8 +439,11 @@ const GrapesJSEditor = forwardRef<GrapesJSEditorRef, GrapesJSEditorProps>(functi
       const mergedScripts = [bodyScripts, ...scripts].filter(Boolean).join('\n');
       const mergedCss = [css, inlineCss].filter(Boolean).join('\n');
 
-      editor.setComponents(tagMediaWithPids(withoutStyles));
-      if (mergedCss) editor.setStyle(mergedCss);
+      replaceComponents(editor, tagMediaWithPids(withoutStyles));
+      // Unconditional: an empty string means the user cleared the stylesheet, and skipping
+      // setStyle leaves the old rules in the editor, so the next autosave writes them back
+      // into both cssContent and editorProjectData.
+      editor.setStyle(mergedCss);
 
       if (mergedCss !== sourceCss) onSaveCss?.(mergedCss);
       if (headContent !== headContentRef.current) {

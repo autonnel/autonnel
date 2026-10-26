@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { apiCall, ApiCallError } from '@/lib/api/client';
 import type { MemberDto, InvitationDto } from '@/contracts/identity';
 import { Input, dsSelectClass } from '@/components/primitives';
@@ -46,22 +47,30 @@ function RoleDropdown({
   busy: boolean;
   onToggle: (userId: string, roleId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const open = anchor !== null;
 
   useEffect(() => {
     if (!open) return;
+    const close = () => setAnchor(null);
     const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!ref.current?.contains(target) && !menuRef.current?.contains(target)) close();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') close();
     };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
     };
   }, [open]);
 
@@ -74,7 +83,7 @@ function RoleDropdown({
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={(e) => setAnchor(open ? null : e.currentTarget.getBoundingClientRect())}
         disabled={busy}
         className={classes(
           'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[12.5px] font-medium transition-colors min-w-[120px]',
@@ -89,10 +98,12 @@ function RoleDropdown({
           <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {open && (
+      {anchor && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className="absolute left-0 top-full mt-1 z-40 w-52 bg-ds-card border border-ds-line rounded-[8px] shadow-[0_8px_24px_rgba(17,24,39,0.12)] py-1"
+          style={{ top: anchor.bottom + 4, left: anchor.left }}
+          className="fixed z-50 w-52 bg-ds-card border border-ds-line rounded-[8px] shadow-[0_8px_24px_rgba(17,24,39,0.12)] py-1"
         >
           {allRoles.map((r) => {
             const has = currentIds.has(r.id);
@@ -126,7 +137,8 @@ function RoleDropdown({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

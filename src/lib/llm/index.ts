@@ -13,12 +13,14 @@ import { lumaVideoProvider } from './providers/video/luma-video';
 import { googleVeoProvider } from './providers/video/google-veo';
 import { replicateVideoProvider } from './providers/video/replicate-video';
 import { falVideoProvider } from './providers/video/fal-video';
+import { workersAiTextProvider, workersAiImageProvider } from './providers/workers-ai';
 import {
   registerTextProvider, registerImageProvider, registerVideoProvider,
 } from './registry';
 
 registerTextProvider(openaiChatProvider);
 registerTextProvider(anthropicMessagesProvider);
+registerTextProvider(workersAiTextProvider);
 registerImageProvider(openaiImagesProvider);
 registerImageProvider(geminiImageProvider);
 registerImageProvider(bflFluxProvider);
@@ -26,6 +28,7 @@ registerImageProvider(stabilityProvider);
 registerImageProvider(replicateProvider);
 registerImageProvider(falProvider);
 registerImageProvider(huggingfaceInferenceProvider);
+registerImageProvider(workersAiImageProvider);
 registerVideoProvider(openaiVideoProvider);
 registerVideoProvider(runwayVideoProvider);
 registerVideoProvider(lumaVideoProvider);

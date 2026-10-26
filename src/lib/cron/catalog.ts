@@ -6,6 +6,11 @@ export interface CronJobMeta {
   lockTtlSeconds: number;
 }
 
+// Cloudflare invokes `scheduled` once per matching expression, concurrently, and the KV lock cannot
+// serialize those calls. Plugin crons therefore run only on the invocation for this expression, so
+// a coinciding minute (`*/5` + `*/10` + `*/30`) still runs each plugin cron once.
+export const PLUGIN_CRON_TRIGGER = '*/5 * * * *';
+
 export const CRON_JOBS: CronJobMeta[] = [
   { cron: '*/5 * * * *', name: 'ads.postback', intervalMs: 5 * 60_000, lockTtlSeconds: 300 },
   { cron: '*/5 * * * *', name: 'orders.auto-capture', intervalMs: 5 * 60_000, lockTtlSeconds: 300 },
@@ -16,6 +21,7 @@ export const CRON_JOBS: CronJobMeta[] = [
   { cron: '*/10 * * * *', name: 'fulfillment.sync', intervalMs: 10 * 60_000, lockTtlSeconds: 7200 },
   { cron: '*/30 * * * *', name: 'recall.dispatch', intervalMs: 30 * 60_000, lockTtlSeconds: 600 },
   { cron: '*/30 * * * *', name: 'analytics.conversion', intervalMs: 30 * 60_000, lockTtlSeconds: 3600 },
+  { cron: '0 * * * *', name: 'ads.insights', intervalMs: 60 * 60_000, lockTtlSeconds: 3600 },
   { cron: '0 3 * * *', name: 'maintenance.notification-logs', intervalMs: 24 * 60 * 60_000, lockTtlSeconds: 600 },
   { cron: '0 3 * * *', name: 'maintenance.jobs', intervalMs: 24 * 60 * 60_000, lockTtlSeconds: 600 },
 ];

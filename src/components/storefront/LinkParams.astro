@@ -1,0 +1,8 @@
+---
+// Link-param propagation without the analytics tracker, for customer routes that
+// render published HTML but carry no page/funnel identity to attribute events to.
+---
+<script>
+  import { startLinkParamPropagation } from '@/scripts/link-propagation';
+  startLinkParamPropagation();
+</script>

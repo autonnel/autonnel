@@ -1,6 +1,6 @@
 import { AttributionSnapshot } from '../domain/value-objects/attribution-snapshot';
 import { FunnelSnapshotRef, StepSlug } from '../domain/value-objects/funnel-snapshot-ref';
-import { FunnelSession } from '../domain/funnel-session';
+import { FunnelSession, type SessionMarket } from '../domain/funnel-session';
 import type { AttributionReaderPort, FunnelSessionStorePort, FunnelSnapshotReaderPort } from './ports/outbound';
 import type { FunnelHttpPort, RenderStepResult } from './ports/inbound';
 
@@ -10,6 +10,8 @@ export interface RenderFunnelStepDeps {
   attribution: AttributionReaderPort;
   newSessionId: () => string;
   tenantId: string;
+  // Throws for a currency the checkout cannot sell in, which fails the session start.
+  resolveMarket: (currency: string | null) => SessionMarket;
   ttlSeconds: number;
 }
 
@@ -35,6 +37,7 @@ export class RenderFunnelStepService implements FunnelHttpPort {
         stepSlugs: snapshot.stepSlugs.map((s) => StepSlug.of(s)),
         attribution: attr ? AttributionSnapshot.create({ ...attr, sessionId }) : AttributionSnapshot.empty(sessionId),
         entryStep: StepSlug.of(stepSlug),
+        market: this.deps.resolveMarket(snapshot.pageCurrencyByStep[stepSlug] ?? null),
       });
       await this.deps.sessions.store(session, this.deps.ttlSeconds);
     } else {

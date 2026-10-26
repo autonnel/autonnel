@@ -19,6 +19,20 @@ export { invalidateUserRolesCache, invalidateAllPermissionCaches };
 
 const ALL_FEATURES: FeatureId[] = Object.values(FEATURES) as FeatureId[];
 
+// roles.grants is a single free-text column shared with the identity module's own catalog
+// (src/modules/identity/infra/feature-catalog.ts), which uses UPPER_SNAKE keys and is the only
+// catalog PUT /api/permissions/roles/:id/features validates against -- so every grant a real role
+// holds is written in that format, never in this catalog's lower.dotted one. Normalize both shapes
+// to the same case/separator-insensitive key so a grant written in either format still resolves to
+// this catalog's canonical FeatureId here, instead of silently matching nothing.
+function normalizeFeatureKey(key: string): string {
+  return key.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+const FEATURE_BY_NORMALIZED_KEY: ReadonlyMap<string, FeatureId> = new Map(
+  ALL_FEATURES.map((feature) => [normalizeFeatureKey(feature), feature])
+);
+
 export async function getUserRoles(userId: string): Promise<string[]> {
   return cacheGetOrSet(buildUserRolesCacheKey(userId), withJitter(PERMISSION_CACHE_TTL), async () => {
     const repo = getPermissionRepository();
@@ -36,7 +50,10 @@ async function loadFeaturesForRoleNames(roleNames: string[]): Promise<Set<Featur
     const role = await repo.getRoleByName(name);
     if (!role) continue;
     const features = await repo.listRoleFeatures(role.id);
-    for (const f of features) featureSet.add(f);
+    for (const raw of features) {
+      const mapped = FEATURE_BY_NORMALIZED_KEY.get(normalizeFeatureKey(raw));
+      if (mapped) featureSet.add(mapped);
+    }
   }
   return featureSet;
 }

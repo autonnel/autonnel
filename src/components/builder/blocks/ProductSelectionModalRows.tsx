@@ -1,6 +1,8 @@
 import { type ReactNode } from 'react';
 import { scaledFontSize } from '../TextField';
 import { formatPrice, type Product } from './useProductSelection';
+import { useLanguage } from '../LanguageContext';
+import { hasPriceIn } from './product-selection-types';
 import { EditButton, InlineEditInput, ResetButton } from './ProductSelectionEditing';
 import type { SelectionHandle, Variant } from './product-selection-modal-types';
 import { colors, selectedTone, spinnerStyle } from './product-selection-modal-styles';
@@ -82,6 +84,7 @@ function ProductTitle({ product, productSelected, h }: { product: Product; produ
 }
 
 function ProductRow({ product, h }: { product: Product; h: SelectionHandle }) {
+  const language = useLanguage();
   const hasVariants = product.variants.length > 0;
   const isExpanded = h.expandedProducts.has(product.id);
   const productSelected = !hasVariants && h.isItemSelected(product.id);
@@ -89,6 +92,7 @@ function ProductRow({ product, h }: { product: Product; h: SelectionHandle }) {
   const isPricingLoading = h.pricingProductIds.has(product.id);
   const displayProduct = priced || product;
   const displayCurrency = priced ? (priced.currency || h.currentCurrency) : h.currentCurrency;
+  const unavailable = !hasVariants && !hasPriceIn(displayProduct, h.pageCurrency);
 
   return (
     <div style={{ marginBottom: 8 }}>
@@ -99,7 +103,8 @@ function ProductRow({ product, h }: { product: Product; h: SelectionHandle }) {
           gap: 12,
           padding: '12px 14px',
           borderRadius: 8,
-          cursor: 'pointer',
+          cursor: unavailable ? 'not-allowed' : 'pointer',
+          opacity: unavailable ? 0.55 : 1,
           ...selectedTone(productSelected),
         }}
         onClick={() => hasVariants ? h.toggleProductExpanded(product.id) : h.handleSelect(displayProduct)}
@@ -119,7 +124,7 @@ function ProductRow({ product, h }: { product: Product; h: SelectionHandle }) {
         </div>
         {!hasVariants && (
           <div style={{ fontSize: scaledFontSize(14), fontWeight: 600, color: colors.ink }}>
-            {formatPrice(displayProduct.price, displayCurrency)}
+            {unavailable ? `No price in ${h.pageCurrency}` : formatPrice(displayProduct.price, displayCurrency, language)}
           </div>
         )}
         {!hasVariants && productSelected && (
@@ -238,18 +243,22 @@ function VariantRow({
   displayCurrency: string;
   h: SelectionHandle;
 }) {
+  const language = useLanguage();
   const selected = h.isItemSelected(variant.id);
+  const unavailable = !hasPriceIn(variant, h.pageCurrency);
 
   return (
     <div
       onClick={() => h.handleSelect(displayProduct, variant)}
+      aria-disabled={unavailable || undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 12,
         padding: '10px 14px',
         borderRadius: 8,
-        cursor: 'pointer',
+        cursor: unavailable ? 'not-allowed' : 'pointer',
+        opacity: unavailable ? 0.55 : 1,
         marginBottom: 4,
         ...selectedTone(selected),
         background: selected ? 'rgba(37, 99, 235, 0.04)' : colors.surface,
@@ -261,7 +270,7 @@ function VariantRow({
         {selected && <VariantProductName variant={variant} product={product} h={h} />}
       </div>
       <div style={{ fontSize: scaledFontSize(13), fontWeight: 600, color: colors.ink }}>
-        {formatPrice(variant.price, displayCurrency)}
+        {unavailable ? `No price in ${h.pageCurrency}` : formatPrice(variant.price, displayCurrency, language)}
       </div>
       {selected && (
         <QuantityInput

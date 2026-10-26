@@ -25,7 +25,9 @@ export interface StatsColumnDef {
 export interface PaymentFormFieldSpec {
   key: string;
   label: string;
-  type: 'text' | 'password';
+  type: 'text' | 'password' | 'textarea';
+  // Never echoed back to the browser (password fields are always treated as secret).
+  secret?: boolean;
   placeholder?: string;
   hint?: string;
 }
@@ -60,13 +62,17 @@ interface RegistryStore {
   byDbProvider: Map<string, PaymentProviderRegistration>;
 }
 
-const store: RegistryStore = {
-  byMethod: new Map(),
-  byDbProvider: new Map(),
-};
+const STORE_KEY = Symbol.for('autonnel.payment.registry');
+
+// Shared through globalThis: plugin registrations arrive via the core dist module while pages may
+// import this file from source, and both must see one registry.
+function getStore(): RegistryStore {
+  const g = globalThis as unknown as { [k: symbol]: RegistryStore | undefined };
+  return (g[STORE_KEY] ??= { byMethod: new Map(), byDbProvider: new Map() });
+}
 
 function entries(): PaymentProviderRegistration[] {
-  return [...store.byMethod.values()];
+  return [...getStore().byMethod.values()];
 }
 
 function flatMapEntries<T>(pick: (r: PaymentProviderRegistration) => T[]): T[] {
@@ -78,16 +84,16 @@ function flatMapEntries<T>(pick: (r: PaymentProviderRegistration) => T[]): T[] {
 
 export function registerPaymentProvider(registration: PaymentProviderRegistration): void {
   const { paymentMethod, dbProvider } = registration;
-  store.byMethod.set(paymentMethod, registration);
-  store.byDbProvider.set(dbProvider, registration);
+  getStore().byMethod.set(paymentMethod, registration);
+  getStore().byDbProvider.set(dbProvider, registration);
 }
 
 export function getProviderByMethod(paymentMethod: string): PaymentProviderRegistration | undefined {
-  return store.byMethod.get(paymentMethod.toLowerCase());
+  return getStore().byMethod.get(paymentMethod.toLowerCase());
 }
 
 export function getProviderByDbKey(dbProvider: string): PaymentProviderRegistration | undefined {
-  return store.byDbProvider.get(dbProvider);
+  return getStore().byDbProvider.get(dbProvider);
 }
 
 export function getAllProviders(): PaymentProviderRegistration[] {
@@ -95,7 +101,7 @@ export function getAllProviders(): PaymentProviderRegistration[] {
 }
 
 export function getAllDbProviderKeys(): string[] {
-  return [...store.byDbProvider.keys()];
+  return [...getStore().byDbProvider.keys()];
 }
 
 export function getAllClickEventTypes(): string[] {
@@ -133,7 +139,7 @@ export function getPaymentDisplay(paymentMethod: string): PaymentDisplayInfo {
 
 export function getPaymentDetailDisplay(paymentDetail: string): PaymentDetailInfo {
   const key = paymentDetail.toLowerCase();
-  for (const reg of store.byMethod.values()) {
+  for (const reg of getStore().byMethod.values()) {
     const match = reg.details[key];
     if (match) return match;
   }
@@ -142,4 +148,15 @@ export function getPaymentDetailDisplay(paymentDetail: string): PaymentDetailInf
 
 export function getDbProviderForMethod(paymentMethod: string): string | undefined {
   return getProviderByMethod(paymentMethod)?.dbProvider;
+}
+
+export function unregisterPaymentProvider(dbProvider: string): void {
+  const reg = getStore().byDbProvider.get(dbProvider);
+  if (!reg) return;
+  getStore().byDbProvider.delete(dbProvider);
+  getStore().byMethod.delete(reg.paymentMethod);
+}
+
+export function isSecretField(field: PaymentFormFieldSpec): boolean {
+  return field.type === 'password' || field.secret === true;
 }

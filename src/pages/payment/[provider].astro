@@ -2,7 +2,7 @@
 import DashboardLayout from '@/layouts/DashboardLayout.astro';
 import { checkAuth } from '@/lib/auth/middleware';
 import { userHasFeature, FEATURES } from '@/lib/rbac';
-import { getProviderByDbKey } from '@/lib/adapters/payment/registry';
+import { getProviderByDbKey, isSecretField } from '@/lib/adapters/payment/registry';
 import '@/lib/adapters/payment/providers';
 import { getPaymentProviderEntryWithCredentials } from '@/lib/config/payment';
 import PaymentProviderForm from '@/components/settings/payment/PaymentProviderForm';
@@ -27,7 +27,7 @@ const existing = await getPaymentProviderEntryWithCredentials(slug as any);
 const storedCredentials = (existing?.credentials ?? {}) as Record<string, unknown>;
 const visibleValues: Record<string, string> = {};
 for (const field of entry.formFields) {
-  if (field.type === 'password') continue;
+  if (isSecretField(field)) continue;
   const v = storedCredentials[field.key];
   if (typeof v === 'string') visibleValues[field.key] = v;
 }

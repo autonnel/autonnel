@@ -1,4 +1,5 @@
 import { AwsClient } from 'aws4fetch';
+import { bucketBaseUrl } from '@/lib/adapters/storage/s3';
 import type { ObjectStoragePort } from '../../application/ports/outbound';
 import type { StorageKey } from '../../domain/value-objects/storage-key';
 
@@ -17,7 +18,7 @@ export class R2ObjectStorageAdapter implements ObjectStoragePort {
   }
 
   async put(key: StorageKey, bytes: Uint8Array, contentType: string): Promise<void> {
-    const url = `${this.cfg.endpoint}/${this.cfg.bucket}/${key.value}`;
+    const url = `${bucketBaseUrl(this.cfg.endpoint, this.cfg.bucket)}/${key.value}`;
     const res = await this.client.fetch(url, { method: 'PUT', body: bytes as BodyInit, headers: { 'content-type': contentType } });
     if (!res.ok) throw new Error(`R2 put failed: ${res.status}`);
   }

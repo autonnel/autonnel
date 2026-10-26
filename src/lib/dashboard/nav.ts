@@ -57,6 +57,7 @@ export const SETTINGS_NAV: NavGroup = {
     { id: 'settings.notifications', label: 'Notifications', href: '/settings/notifications' },
     { id: 'settings.ai-conversion-analysis', label: 'AI Conversion Analysis', href: '/settings/ai-conversion-analysis' },
     { id: 'settings.integrations', label: 'Integrations', href: '/settings/integrations' },
+    { id: 'settings.ads', label: 'Ads', href: '/settings/ads' },
     { id: 'settings.email', label: 'Email Provider', href: '/settings/email' },
     { id: 'settings.email-templates', label: 'Email Templates', href: '/settings/email-templates' },
     { id: 'settings.ecommerce', label: 'Headless Ecommerce', href: '/settings/ecommerce' },

@@ -2,6 +2,7 @@
 import { CRON_JOBS } from '@/lib/cron/catalog';
 import { checkAuth } from '@/lib/auth/middleware';
 import UserMenu from '@/components/layout/UserMenu';
+import { WHITE_LABEL } from '@/lib/dashboard/white-label';
 
 interface Crumb {
   label: string;
@@ -25,7 +26,7 @@ const jobCount = CRON_JOBS.length;
 >
   <nav class="flex items-center gap-1.5 text-[12.5px] min-w-0 flex-1" aria-label="Breadcrumb">
     {breadcrumbs.length === 0 ? (
-      <span class="text-ds-muted">Autonnel</span>
+      !WHITE_LABEL && <span class="text-ds-muted">Autonnel</span>
     ) : (
       breadcrumbs.map((crumb, i) => (
         <Fragment>

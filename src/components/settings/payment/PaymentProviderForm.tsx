@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button as DsButton } from '../../primitives/ds';
-import { FormInput, FormSelect, AlertBox } from '../../primitives';
+import { FormInput, FormSelect, FormTextarea, AlertBox } from '../../primitives';
 import { apiCall, ApiCallError } from '@/lib/api/client';
 import type { PaymentFormFieldSpec } from '@/lib/adapters/payment/registry';
 
@@ -77,19 +77,29 @@ export default function PaymentProviderForm({
         <option value="live">Live</option>
       </FormSelect>
 
-      {formFields.map((field) => (
-        <FormInput
-          key={field.key}
-          label={field.label}
-          type={field.type}
-          value={values[field.key]}
-          placeholder={field.placeholder || (existing ? 'Leave blank to keep' : '')}
-          hint={field.hint}
-          onChange={(e) =>
-            setValues({ ...values, [field.key]: e.target.value })
-          }
-        />
-      ))}
+      {formFields.map((field) =>
+        field.type === 'textarea' ? (
+          <FormTextarea
+            key={field.key}
+            label={field.label}
+            value={values[field.key]}
+            rows={6}
+            placeholder={field.placeholder || (existing ? 'Leave blank to keep' : '')}
+            hint={field.hint}
+            onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+          />
+        ) : (
+          <FormInput
+            key={field.key}
+            label={field.label}
+            type={field.type}
+            value={values[field.key]}
+            placeholder={field.placeholder || (existing ? 'Leave blank to keep' : '')}
+            hint={field.hint}
+            onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+          />
+        ),
+      )}
 
       <div className="flex items-center gap-3 pt-2">
         <DsButton variant="primary" onClick={handleSave} disabled={saving}>

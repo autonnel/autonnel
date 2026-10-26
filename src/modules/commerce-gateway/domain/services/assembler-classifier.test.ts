@@ -56,6 +56,19 @@ describe("PurchasableAssembler", () => {
     expect(p.price).toBeUndefined();
     expect(p.sellability.verdict).toBe("unavailable");
   });
+
+  it("never falls back to the default market's price in another currency", () => {
+    const prod = product(true);
+    const p = assembler.assemble(prod, prod.variants[0], Market.of("DE", "EUR"), now);
+    expect(p.price).toBeUndefined();
+    expect(p.sellability.verdict).toBe("unavailable");
+  });
+
+  it("still resolves a same-currency price keyed by the default market", () => {
+    const prod = product(true);
+    const p = assembler.assemble(prod, prod.variants[0], Market.of("CA", "USD"), now);
+    expect(p.price?.amountMinor).toBe(1999);
+  });
 });
 
 describe("ErrorClassifier", () => {

@@ -13,26 +13,28 @@ import { Market } from '@/modules/commerce-gateway/domain/value-objects/market';
 import { ExternalRef } from '@/modules/commerce-gateway/domain/value-objects/external-ref';
 import { PrismaCouponRepository } from '@/modules/coupons/infra/prisma/coupon.repository';
 import { PrismaPublicationReader } from '@/modules/storefront-checkout/infra/prisma/prisma-publication-reader';
+import { publishFunnelForStep } from './funnel-publishing';
+import { buildPaymentRequestContext, snapshotWithReturnTargets, type CheckoutRequestInfo } from './payment-request-context';
 import type { CatalogReadPort as GatewayCatalogReadPort, SubmitHandoffCommand } from '@/modules/commerce-gateway/application/ports/inbound';
 import type { SubmitHandoffService } from '@/modules/commerce-gateway/application/submit-handoff.service';
 import type { PurchasableDto } from '@/modules/storefront-checkout/infra/clients/commerce-catalog-client';
 import type { HandoffPayload } from '@/modules/storefront-checkout/domain/services/handoff-payload-assembler';
 import type { CouponDefinition } from '@/modules/storefront-checkout/domain/services/coupon-evaluation-service';
-import { CouponNotRedeemableError } from '@/modules/storefront-checkout/application/submit-checkout-service';
+import { assertRedeemableInCartCurrency, couponRatesFor, previewCoupon, toCouponDefinition, type CouponPreview, type CouponRedemptionDeps } from './coupon-redemption';
 import { makeCoupons } from './make-coupons';
 import { makePaymentsCommand, makePaymentsQuery } from './make-payments';
 import type { CheckoutSnapshot } from '@/modules/storefront-checkout/application/checkout-snapshot';
-import { makeCommerceGatewayReadSide, makeSubmitHandoffService } from './make-commerce-gateway';
+import { makeCommerceGatewayReadSide, makeSubmitHandoffService, readCurrencyRates } from './make-commerce-gateway';
 import { PrismaOrderRepository } from '@/modules/order-fulfillment/infra/prisma/order.repository';
 import { getFulfillmentMode } from '@/lib/config/ecommerce';
 import { executeHandoffForSale, submitIndependentUpsell } from './handoff-coordinator';
 import type { HandoffForSaleDeps, SplitContext } from './handoff-coordinator';
 import { makePlatform, registerJobHandler } from './make-platform';
 import { makeStorefrontConsumers } from './make-storefront-consumers';
-import type { StorefrontCheckoutDeps } from './make-storefront-checkout';
+import { checkoutMarket, isSellablePurchasable, marketForCurrency } from './checkout-market';
+import { makeStorefrontCheckout, type StorefrontCheckoutDeps } from './make-storefront-checkout';
 
 const logger = createLogger('StorefrontRuntime');
-const MAJOR_TO_MINOR = 100;
 
 interface KvBindingLike {
   get(key: string, type: 'text'): Promise<string | null>;
@@ -92,7 +94,7 @@ function gatewayHandoff(): Promise<SubmitHandoffService> {
   return (submitHandoff ??= makeSubmitHandoffService());
 }
 
-function makePaymentsPort(): StorefrontCheckoutDeps['paymentsPort'] {
+function makePaymentsPort(request?: CheckoutRequestInfo): StorefrontCheckoutDeps['paymentsPort'] {
   return {
     async create(saleRef, amount, captureMethod, provider, checkoutSnapshot) {
       const slug = provider ?? 'STRIPE';
@@ -101,10 +103,11 @@ function makePaymentsPort(): StorefrontCheckoutDeps['paymentsPort'] {
         amount,
         captureMethod,
         provider: slug,
-        checkoutSnapshot,
+        checkoutSnapshot: snapshotWithReturnTargets(checkoutSnapshot, request),
+        context: buildPaymentRequestContext({ slug, saleRef, snapshot: checkoutSnapshot, request }),
       });
-      // PayPal's JS SDK createOrder needs the PayPal order id (providerIntentId); Stripe needs the
-      // client_secret. clientHandle is the per-provider handle the matching client widget consumes.
+      // PayPal's JS SDK createOrder needs the PayPal order id (providerIntentId); every other provider
+      // hands its client handle (Stripe client_secret, hosted-page URL) to the matching widget.
       return { clientHandle: slug === 'PAYPAL' ? result.providerIntentId : result.clientHandle.value };
     },
   };
@@ -127,9 +130,7 @@ function makeCatalogPort(market: { countryCode: string; currencyCode: string }):
           variantExternalId,
           title: p?.title ?? '',
           price: price ? { amountMinor: price.amountMinor, currencyCode: price.currencyCode } : null,
-          // Sell unless inventory is explicitly unavailable; "unknown"/stale inventory
-          // stays purchasable (matches the storefront product display).
-          sellable: !!p && p.sellability.verdict !== 'unavailable' && price !== null,
+          sellable: isSellablePurchasable(p),
         };
       });
     },
@@ -198,21 +199,6 @@ function makeJobQueue(locals: CfLocals): StorefrontCheckoutDeps['jobQueue'] {
   };
 }
 
-function toCouponDefinition(c: {
-  code: string;
-  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT';
-  discountValue: number;
-  minOrderAmount: number | null;
-}): CouponDefinition {
-  return {
-    code: c.code,
-    kind: c.discountType === 'PERCENTAGE' ? 'percentage' : 'fixed',
-    // percentage stays as the raw percent; fixed value is stored in major units → minor.
-    value: c.discountType === 'PERCENTAGE' ? c.discountValue : Math.round(c.discountValue * MAJOR_TO_MINOR),
-    minSubtotalMinor: c.minOrderAmount === null ? 0 : Math.round(c.minOrderAmount * MAJOR_TO_MINOR),
-  };
-}
-
 function makeCouponReader(): StorefrontCheckoutDeps['couponReader'] {
   return {
     async findByCode(code): Promise<CouponDefinition | null> {
@@ -224,15 +210,45 @@ function makeCouponReader(): StorefrontCheckoutDeps['couponReader'] {
   };
 }
 
+function makeCouponRedemptionDeps(defaultCurrency: string): CouponRedemptionDeps {
+  return {
+    rates: (cartCurrency) => couponRatesFor(readCurrencyRates, cartCurrency, defaultCurrency),
+    evaluate: (code, baseSubtotalMinor, now) => makeCoupons().evaluate(code, baseSubtotalMinor, now),
+  };
+}
+
 // Submit-time re-check against the authoritative coupon record (the session snapshot can be stale,
 // e.g. the coupon hit maxUsages between apply and submit).
-function makeCouponGuard(): StorefrontCheckoutDeps['couponGuard'] {
+function makeCouponGuard(defaultCurrency: string): StorefrontCheckoutDeps['couponGuard'] {
+  const deps = makeCouponRedemptionDeps(defaultCurrency);
   return {
-    async assertRedeemable(code, subtotalMinor, now): Promise<void> {
-      const result = await makeCoupons().evaluate(code, subtotalMinor, now);
-      if (!result.valid) throw new CouponNotRedeemableError(result.error ?? 'Coupon is not redeemable');
+    async assertRedeemable(code, subtotalMinor, currencyCode, now): Promise<void> {
+      await assertRedeemableInCartCurrency(deps, code, subtotalMinor, currencyCode, now);
     },
   };
+}
+
+// Storefront coupon preview (GET /api/shop/coupon): same conversion as the session apply.
+// '' / null currency means the store default.
+export function previewStorefrontCoupon(code: string, subtotalMinor: number, currencyCode: string | null): Promise<CouponPreview> {
+  const defaultCurrency = checkoutMarket(getRuntimeEnv()).currencyCode;
+  return previewCoupon(makeCouponRedemptionDeps(defaultCurrency), code, subtotalMinor, currencyCode || defaultCurrency, new Date());
+}
+
+export const CHECKOUT_SESSION_COOKIE = 'an_checkout_session';
+
+// The cart currency of the shopper's checkout session, when a valid session cookie is present.
+export async function checkoutSessionCurrency(cookieValue: string | null, locals?: unknown): Promise<string | null> {
+  if (!cookieValue) return null;
+  try {
+    const sessions = makeStorefrontCheckout(storefrontCheckoutDepsFromLocals(locals)).sessions;
+    const sessionId = await sessions.verifyCookieValue(cookieValue);
+    if (!sessionId) return null;
+    return (await sessions.load(sessionId))?.market.currencyCode ?? null;
+  } catch (err) {
+    logger.warn('Checkout session currency lookup failed', { error: err });
+    return null;
+  }
 }
 
 // commerce.handoff is enqueued by the payment.captured event handler; EnqueueJobService throws unless a
@@ -303,31 +319,31 @@ function makeStorefrontConsumersForJob() {
 
 registerStorefrontHandlers();
 
-export function storefrontCheckoutDepsFromLocals(locals?: unknown): StorefrontCheckoutDeps {
+export function storefrontCheckoutDepsFromLocals(locals?: unknown, request?: CheckoutRequestInfo): StorefrontCheckoutDeps {
   const env = getRuntimeEnv();
   const cfLocals = (locals ?? {}) as CfLocals;
   const tenantEvents = new TenantEventPublisher(new OutboxEventPublisher(getBasePrisma()));
-  const market = {
-    countryCode: (env.DEFAULT_COUNTRY as string | undefined) ?? 'US',
-    currencyCode: (env.DEFAULT_CURRENCY as string | undefined) ?? 'USD',
-  };
+  const market = checkoutMarket(env);
+  const prisma = getTenantPrisma() as unknown as PrismaClient;
   return {
-    prisma: getTenantPrisma() as unknown as PrismaClient,
+    prisma,
     kv: resolveKv(),
     tenantId: getCurrentTenantId(),
     cookieSecret: resolveSessionSecret(['CHECKOUT_COOKIE_SECRET', 'AUTH_SESSION_SECRET'], env),
-    paymentsPort: makePaymentsPort(),
+    paymentsPort: makePaymentsPort(request),
     catalogPort: makeCatalogPort(market),
     handoffPort: makeHandoffPort(),
-    publicationPort: new PrismaPublicationReader(getTenantPrisma() as unknown as PrismaClient),
+    publicationPort: new PrismaPublicationReader(prisma, (slug) => publishFunnelForStep(prisma, slug)),
     eventPublisher: { publish: (events) => Promise.all(events.map((e) => tenantEvents.publish(e))).then(() => undefined) },
     jobQueue: makeJobQueue(cfLocals),
     // TODO: bridge to analytics attribution once sessionId→landing/clickIds lookup exists.
     attributionPort: { async read() { return null; } },
     paymentSnapshots: makePaymentSnapshotReader(),
     couponReader: makeCouponReader(),
-    couponGuard: makeCouponGuard(),
+    couponGuard: makeCouponGuard(market.currencyCode),
+    couponRates: makeCouponRedemptionDeps(market.currencyCode).rates,
     market,
+    resolveMarket: (currency) => marketForCurrency(currency, env),
     sessionTtlSeconds: 3600,
     maxPriceAgeMs: 300000,
   };

@@ -14,3 +14,23 @@ export interface ActivityEventRow {
 export interface ActivityEventStorePort {
   appendActivity(events: ReadonlyArray<ActivityEventRow>): Promise<void>;
 }
+
+export interface PageEngagementRow {
+  visitorId: string;
+  sessionId: string;
+  pageId: string;
+  funnelId: string | null;
+  stepId: string | null;
+  dwellMs: number;
+  activeMs: number | null;
+  maxScrollPct: number | null;
+  exitScrollPct: number | null;
+  viewportPct: number | null;
+  dwellByDepth: number[];
+  interactions: string[];
+  occurredAt: Date;
+}
+
+export interface PageEngagementStorePort {
+  upsertEngagement(row: PageEngagementRow): Promise<void>;
+}

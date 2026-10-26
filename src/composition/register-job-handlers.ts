@@ -1,6 +1,7 @@
 import { registerStorefrontHandlers } from './storefront-runtime';
 import { registerMediaGenerationHandlers } from './make-media-generation';
 import { registerRecallHandlers } from './make-recall-deps';
+import { registerPluginJobHandlers } from './plugin-runtime';
 // messaging.send and ads.postback.dispatch register as top-level import side effects.
 import './make-messaging';
 import './make-acquisition-ads';
@@ -12,4 +13,5 @@ export function registerAllJobHandlers(): void {
   registerStorefrontHandlers();
   registerMediaGenerationHandlers();
   registerRecallHandlers();
+  registerPluginJobHandlers();
 }

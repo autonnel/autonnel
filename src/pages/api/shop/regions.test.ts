@@ -4,10 +4,12 @@ import type { ShopRegionListDto } from "@/contracts/shop";
 const availableCurrencies = vi.fn();
 const describeCapabilities = vi.fn();
 const makeReadSide = vi.fn();
+const readCurrencyRates = vi.fn();
 
 vi.mock("@/composition/make-commerce-gateway", () => ({
   makeLiveStorefrontCatalogReadSide: () => Promise.resolve({ availableCurrencies }),
   makeCommerceGatewayReadSide: () => makeReadSide(),
+  readCurrencyRates: () => readCurrencyRates(),
 }));
 
 import { GET } from "./regions";
@@ -23,6 +25,8 @@ beforeEach(() => {
   describeCapabilities.mockReset();
   makeReadSide.mockReset();
   makeReadSide.mockResolvedValue({ describeCapabilities });
+  readCurrencyRates.mockReset();
+  readCurrencyRates.mockResolvedValue(null);
 });
 
 describe("GET /api/shop/regions", () => {
@@ -51,5 +55,43 @@ describe("GET /api/shop/regions", () => {
     describeCapabilities.mockResolvedValue({ upstreamFlags: () => ({ supportsMultiCurrency: true }) });
     const body = await call();
     expect(body.supportsMultiCurrency).toBe(true);
+  });
+
+  it("lists the backend base currency plus every currency it has a rate for", async () => {
+    availableCurrencies.mockResolvedValue(["USD"]);
+    describeCapabilities.mockRejectedValue(new Error("no backend"));
+    readCurrencyRates.mockResolvedValue({ baseCurrency: "USD", rates: { EUR: 0.95, GBP: 0.8 } });
+    const body = await call();
+    expect(body.regions.map((r) => r.id)).toEqual(["USD", "EUR", "GBP"]);
+    expect(availableCurrencies).not.toHaveBeenCalled();
+    expect(body.supportsMultiCurrency).toBe(true);
+  });
+
+  it("keeps the catalog-derived list when the rates read fails", async () => {
+    availableCurrencies.mockResolvedValue(["EUR"]);
+    describeCapabilities.mockRejectedValue(new Error("no backend"));
+    readCurrencyRates.mockRejectedValue(new Error("upstream down"));
+    const body = await call();
+    expect(body.regions.map((r) => r.id)).toEqual(["USD", "EUR"]);
+  });
+
+  it("always includes the store default currency next to the backend rate currencies", async () => {
+    describeCapabilities.mockRejectedValue(new Error("no backend"));
+    readCurrencyRates.mockResolvedValue({ baseCurrency: "EUR", rates: { GBP: 0.85, USD: 1.1 } });
+    const body = await call();
+    expect(body.regions.map((r) => r.id)).toEqual(["USD", "EUR", "GBP"]);
+  });
+  it("lists the default plus the backend's enabled currencies, including ones without a rate", async () => {
+    describeCapabilities.mockRejectedValue(new Error("no backend"));
+    readCurrencyRates.mockResolvedValue({ baseCurrency: "USD", rates: { EUR: 0.95 }, currencies: ["USD", "EUR", "GBP"] });
+    const body = await call();
+    expect(body.regions.map((r) => r.id)).toEqual(["USD", "EUR", "GBP"]);
+  });
+
+  it("dedupes the default currency when the enabled list already contains it", async () => {
+    describeCapabilities.mockRejectedValue(new Error("no backend"));
+    readCurrencyRates.mockResolvedValue({ baseCurrency: "EUR", rates: {}, currencies: ["EUR", "usd"] });
+    const body = await call();
+    expect(body.regions.map((r) => r.id)).toEqual(["USD", "EUR"]);
   });
 });

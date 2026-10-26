@@ -14,7 +14,7 @@ import type { SubmitCheckoutResult } from '@/modules/storefront-checkout/applica
 import { StartFunnelSessionService } from '@/modules/storefront-checkout/application/start-funnel-session-service';
 import { RenderFunnelStepService } from '@/modules/storefront-checkout/application/render-funnel-step-service';
 import { AddToCartService } from '@/modules/storefront-checkout/application/add-to-cart-service';
-import { ApplyCouponService, type CouponDefinitionReader } from '@/modules/storefront-checkout/application/apply-coupon-service';
+import { ApplyCouponService, type ApplyCouponDeps, type CouponDefinitionReader } from '@/modules/storefront-checkout/application/apply-coupon-service';
 import { SubmitCheckoutService } from '@/modules/storefront-checkout/application/submit-checkout-service';
 import { AdvanceStepService } from '@/modules/storefront-checkout/application/advance-step-service';
 import { ProcessOneClickUpsellService } from '@/modules/storefront-checkout/application/process-one-click-upsell-service';
@@ -41,7 +41,9 @@ export interface StorefrontCheckoutDeps {
   paymentSnapshots: PaymentSnapshotReaderPort;
   couponReader: CouponDefinitionReader;
   couponGuard: CouponRedemptionGuardPort;
+  couponRates: ApplyCouponDeps['rates'];
   market: { countryCode: string; currencyCode: string };
+  resolveMarket: (currency: string | null) => { countryCode: string; currencyCode: string };
   sessionTtlSeconds: number;
   maxPriceAgeMs: number;
   hasher?: WebCryptoHashIdentityAdapter;
@@ -93,7 +95,7 @@ function deferredBuyerForQuote(fallbackCountry: string): BuyerContact {
 }
 
 export function makeStorefrontCheckout(d: StorefrontCheckoutDeps) {
-  const sessions = new EdgeKvSessionAdapter({ kv: d.kv, tenantId: d.tenantId, cookieSecret: d.cookieSecret });
+  const sessions = new EdgeKvSessionAdapter({ kv: d.kv, tenantId: d.tenantId, cookieSecret: d.cookieSecret, fallbackMarket: d.market });
   const payments = new PaymentCaptureClient(d.paymentsPort);
   const catalog = new CommerceCatalogClient(d.catalogPort);
   const snapshots = new FunnelSnapshotClient(d.publicationPort);
@@ -108,7 +110,7 @@ export function makeStorefrontCheckout(d: StorefrontCheckoutDeps) {
     async execute(input: { sessionId: string; buyer: BuyerBody; captureMethod: CaptureMethod; visitorId?: string | null; provider?: PaymentProviderChoice; locale?: string | null }): Promise<SubmitCheckoutResult> {
       const session = await sessions.load(input.sessionId);
       if (!session) throw new Error('FunnelSession not found');
-      const buyer = await buildBuyerContact(input.buyer ?? {}, hasher, d.market.countryCode);
+      const buyer = await buildBuyerContact(input.buyer ?? {}, hasher, session.market.countryCode);
       const result = await submitService.execute({ session, buyer, coupon: session.cart.coupon, captureMethod: input.captureMethod, visitorId: input.visitorId ?? null, provider: input.provider, locale: input.locale ?? null });
       // Persist the session so the attached buyer + linked sale survive for the one-click upsell.
       await sessions.store(session, d.sessionTtlSeconds);
@@ -125,7 +127,7 @@ export function makeStorefrontCheckout(d: StorefrontCheckoutDeps) {
       if (!session) throw new Error('FunnelSession not found');
       const { capturedTotal } = assembly.assemble({
         session,
-        buyer: deferredBuyerForQuote(d.market.countryCode),
+        buyer: deferredBuyerForQuote(session.market.countryCode),
         coupon: session.cart.coupon,
         now: clock(),
         maxPriceAgeMs: d.maxPriceAgeMs,
@@ -135,14 +137,14 @@ export function makeStorefrontCheckout(d: StorefrontCheckoutDeps) {
   };
 
   return {
-    startSession: new StartFunnelSessionService({ snapshots, attribution: d.attributionPort, sessions, newSessionId: newId, ttlSeconds: d.sessionTtlSeconds, tenantId: d.tenantId }),
-    renderStep: new RenderFunnelStepService({ snapshots, attribution: d.attributionPort, sessions, newSessionId: newId, ttlSeconds: d.sessionTtlSeconds, tenantId: d.tenantId }),
-    addToCart: new AddToCartService({ sessions, catalog, clock, ttlSeconds: d.sessionTtlSeconds, market: d.market }),
-    applyCoupon: new ApplyCouponService({ sessions, coupons: d.couponReader, ttlSeconds: d.sessionTtlSeconds }),
+    startSession: new StartFunnelSessionService({ snapshots, attribution: d.attributionPort, sessions, newSessionId: newId, ttlSeconds: d.sessionTtlSeconds, tenantId: d.tenantId, resolveMarket: d.resolveMarket }),
+    renderStep: new RenderFunnelStepService({ snapshots, attribution: d.attributionPort, sessions, newSessionId: newId, ttlSeconds: d.sessionTtlSeconds, tenantId: d.tenantId, resolveMarket: d.resolveMarket }),
+    addToCart: new AddToCartService({ sessions, catalog, clock, ttlSeconds: d.sessionTtlSeconds }),
+    applyCoupon: new ApplyCouponService({ sessions, coupons: d.couponReader, rates: d.couponRates, ttlSeconds: d.sessionTtlSeconds }),
     submitCheckout,
     quoteAuthoritativeTotal,
     advanceStep: new AdvanceStepService({ sessions, ttlSeconds: d.sessionTtlSeconds }),
-    oneClickUpsell: new ProcessOneClickUpsellService({ sessions, catalog, payments, publisher: d.eventPublisher, newSaleId: newId, clock, market: d.market }),
+    oneClickUpsell: new ProcessOneClickUpsellService({ sessions, catalog, payments, publisher: d.eventPublisher, newSaleId: newId, clock }),
     sessions,
   };
 }

@@ -16,6 +16,7 @@ function session() {
     stepSlugs: steps,
     attribution: AttributionSnapshot.empty('sess_1'),
     entryStep: StepSlug.of('landing'),
+    market: { countryCode: 'US', currencyCode: 'USD' },
   });
 }
 

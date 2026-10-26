@@ -1,5 +1,6 @@
 import React from 'react';
 import type { PaymentMethodType } from './types';
+import type { RedirectProviderOption } from './checkout-buyer-form';
 import { useTranslation } from '../../LanguageContext';
 import { scaledFontSize } from '../../TextField';
 
@@ -9,6 +10,7 @@ export interface PaymentMethodTabsProps {
   showPayPal: boolean;
   showPayPalCard: boolean;
   showCreditCard?: boolean;
+  redirectOptions?: RedirectProviderOption[];
   borderColor: string;
 }
 
@@ -40,10 +42,13 @@ const Wordmark = () => renderBrandSvg('0 0 124 33', 60, 16, wordmarkPaths);
 const Glyph = () => renderBrandSvg('0 0 25 33', 16, 18, glyphPaths);
 
 type TabId = PaymentMethodType;
+type BuiltInTabId = 'paypal' | 'paypal-card' | 'card';
 
 const cardFaceSize = 16;
 
-const swatches: Record<TabId, { line: string; tint: string }> = {
+const pluginSwatch = { line: '#0f172a', tint: 'rgba(15, 23, 42, 0.08)' };
+
+const swatches: Record<BuiltInTabId, { line: string; tint: string }> = {
   paypal: { line: '#0070ba', tint: 'rgba(0, 112, 186, 0.1)' },
   'paypal-card': { line: '#142c8e', tint: 'rgba(20, 44, 142, 0.1)' },
   card: { line: '#635bff', tint: 'rgba(99, 91, 255, 0.1)' },
@@ -65,11 +70,11 @@ function buildChips(t: ReturnType<typeof useTranslation>) {
         {cardLabel}
       </>
     ),
-  } satisfies Record<TabId, React.ReactNode>;
+  } satisfies Record<BuiltInTabId, React.ReactNode>;
 }
 
 function chipStyle(active: boolean, id: TabId, idle: string): React.CSSProperties {
-  const { line, tint } = swatches[id];
+  const { line, tint } = swatches[id as BuiltInTabId] ?? pluginSwatch;
   return {
     flex: 1,
     minWidth: 120,
@@ -102,18 +107,22 @@ export function PaymentMethodTabs({
   showPayPal,
   showPayPalCard,
   showCreditCard = false,
+  redirectOptions = [],
   borderColor,
 }: PaymentMethodTabsProps) {
   const t = useTranslation();
 
-  const visibility: Record<TabId, boolean> = {
+  const visibility: Record<BuiltInTabId, boolean> = {
     paypal: showPayPal,
     'paypal-card': showPayPalCard,
     card: showCreditCard,
   };
 
-  const order: TabId[] = ['paypal', 'paypal-card', 'card'];
-  const shown = order.filter((id) => visibility[id]);
+  const builtIn: BuiltInTabId[] = ['paypal', 'paypal-card', 'card'];
+  const shown: TabId[] = [
+    ...builtIn.filter((id) => visibility[id]),
+    ...redirectOptions.map((option) => option.method),
+  ];
 
   if (shown.length < 2) {
     return null;
@@ -130,7 +139,9 @@ export function PaymentMethodTabs({
           onClick={() => onMethodChange(id)}
           style={chipStyle(paymentMethod === id, id, borderColor)}
         >
-          {chips[id]}
+          {chips[id as BuiltInTabId] ?? (
+            <>💳 {redirectOptions.find((option) => option.method === id)?.label}</>
+          )}
         </button>
       ))}
     </div>

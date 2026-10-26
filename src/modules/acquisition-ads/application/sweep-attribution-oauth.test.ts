@@ -51,14 +51,21 @@ describe('CompleteAdConnectionService', () => {
         buildAuthorizeUrl: () => '',
       }),
       discoveryFor: () => ({ discover: async () => [{ id: 'd1', kind: 'PIXEL', externalId: 'px1', isDefault: true }] }),
+      accountDiscoveryFor: () => ({
+        platform: 'META',
+        listAccounts: async () => [{ externalAccountId: 'act_1', name: null, currency: null, timezone: null }],
+      }),
       tokenCipher: { seal: async () => SealedToken.of({ ciphertext: 'c', iv: 'i', tokenVersion: 1 }), open: async () => 'a' },
-      connectionRepo: { save: async (c: any) => saved.push(c), findById: async () => null, findByPlatformAccount: async () => null, list: async () => [] },
+      connectionRepo: {
+        save: async (c: any) => saved.push(c), findById: async () => null, findByPlatformAccount: async () => null,
+        list: async () => [], saveDiscoveredMeta: async () => {},
+      },
       events: { publish: async () => {} },
       decodeState: () => ({ platform: 'META', externalAccountId: 'act_1' }),
       newId: () => 'conn1',
     } as any);
     const res = await svc.complete({ state: 's', code: 'c', redirectUri: 'https://x/cb' });
-    expect(res.connectionId).toBe('conn1');
+    expect(res.connectionIds).toEqual(['conn1']);
     expect(saved[0].status).toBe('ACTIVE');
     expect(saved[0].destinations).toHaveLength(1);
   });

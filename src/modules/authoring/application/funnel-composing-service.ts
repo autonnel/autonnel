@@ -1,9 +1,11 @@
+import type { Funnel } from '../domain/funnel';
 import type { FunnelRepositoryPort, PageExistencePort, DomainEventPort } from './ports';
 
 interface Deps {
   funnels: FunnelRepositoryPort;
   pages: PageExistencePort;
   events: DomainEventPort;
+  publisher?: { publish(funnel: Funnel): Promise<unknown> };
 }
 
 export class FunnelComposingService {
@@ -15,6 +17,7 @@ export class FunnelComposingService {
     if (!(await this.deps.pages.exists(input.pageId))) throw new Error(`Referenced page not found: ${input.pageId}`);
     const events = funnel.addStep({ stepSlug: input.stepSlug, pageId: input.pageId });
     await this.deps.funnels.save(funnel);
+    await this.deps.publisher?.publish(funnel);
     await this.deps.events.publish(events);
   }
 
@@ -23,6 +26,7 @@ export class FunnelComposingService {
     if (!funnel) throw new Error(`Funnel not found: ${input.funnelId}`);
     const events = funnel.removeStep(input.pageId);
     await this.deps.funnels.save(funnel);
+    await this.deps.publisher?.publish(funnel);
     await this.deps.events.publish(events);
   }
 
@@ -33,6 +37,7 @@ export class FunnelComposingService {
     if (!(await this.deps.pages.exists(input.toPageId))) throw new Error(`Referenced page not found: ${input.toPageId}`);
     const events = funnel.replaceStepPage({ fromPageId: input.fromPageId, toPageId: input.toPageId });
     await this.deps.funnels.save(funnel);
+    await this.deps.publisher?.publish(funnel);
     await this.deps.events.publish(events);
   }
 
@@ -41,6 +46,7 @@ export class FunnelComposingService {
     if (!funnel) throw new Error(`Funnel not found: ${input.funnelId}`);
     const events = funnel.setStepSlug({ pageId: input.pageId, stepSlug: input.stepSlug });
     await this.deps.funnels.save(funnel);
+    await this.deps.publisher?.publish(funnel);
     await this.deps.events.publish(events);
   }
 }

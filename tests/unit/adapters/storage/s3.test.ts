@@ -222,4 +222,33 @@ describe('EdgeS3Client', () => {
       );
     });
   });
+
+  describe('virtual-hosted endpoint', () => {
+    const hosted = { ...baseConfig, endpoint: 'https://my-bucket.oss-cn-hongkong.aliyuncs.com/' };
+
+    it('does not repeat the bucket in object paths', async () => {
+      mockFetch.mockResolvedValueOnce(ok({}));
+      await new EdgeS3Client(hosted).putObject('a.txt', 'x', 'text/plain');
+      expect(mockFetch.mock.calls[0][0]).toBe('https://my-bucket.oss-cn-hongkong.aliyuncs.com/a.txt');
+    });
+
+    it('lists against the bucket host', async () => {
+      mockFetch.mockResolvedValueOnce(ok('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>'));
+      await new EdgeS3Client(hosted).listObjects('p/');
+      expect(mockFetch.mock.calls[0][0]).toMatch(/^https:\/\/my-bucket\.oss-cn-hongkong\.aliyuncs\.com\?list-type=2/);
+    });
+
+    it('keeps the bucket in x-amz-copy-source', async () => {
+      mockFetch.mockResolvedValueOnce(ok({}));
+      await new EdgeS3Client(hosted).copyObject('a.txt', 'b.txt');
+      expect(mockFetch.mock.calls[0][0]).toBe('https://my-bucket.oss-cn-hongkong.aliyuncs.com/b.txt');
+      expect(mockFetch.mock.calls[0][1].headers['x-amz-copy-source']).toBe('/my-bucket/a.txt');
+    });
+
+    it('signs URLs on the bucket host', async () => {
+      mockSign.mockImplementationOnce(async (req: Request) => ({ url: req.url }));
+      const url = await new EdgeS3Client(hosted).getSignedDownloadUrl('a.png');
+      expect(url.startsWith('https://my-bucket.oss-cn-hongkong.aliyuncs.com/a.png?')).toBe(true);
+    });
+  });
 });

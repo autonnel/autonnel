@@ -17,7 +17,9 @@ export class PurchasableAssembler {
     market: Market,
     now: Date,
   ): Purchasable {
-    const price = this.priceResolver.resolve(variant.presentmentPrices, market, DEFAULT_MARKET);
+    // Only fall back to a same-currency row: a missing price in the requested currency means unsellable.
+    const fallback = market.currencyCode === DEFAULT_MARKET.currencyCode ? DEFAULT_MARKET : undefined;
+    const price = this.priceResolver.resolve(variant.presentmentPrices, market, fallback);
     const sellability = this.sellabilityPolicy.evaluate({ price, inventory: variant.inventory, now });
     return {
       productRef: product.externalProductRef,

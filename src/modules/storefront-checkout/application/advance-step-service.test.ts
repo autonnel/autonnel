@@ -9,6 +9,7 @@ function session() {
     sessionId: 'sess_1', tenantId: 'default', snapshotRef: FunnelSnapshotRef.of('fn_1', 1),
     stepSlugs: [StepSlug.of('checkout'), StepSlug.of('upsell-1'), StepSlug.of('thankyou')],
     attribution: AttributionSnapshot.empty('sess_1'), entryStep: StepSlug.of('checkout'),
+    market: { countryCode: 'US', currencyCode: 'USD' },
   });
 }
 

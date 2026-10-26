@@ -1,8 +1,9 @@
 import type { Money } from '../../../shared-kernel/money';
+import type { PaymentRequestContext } from './outbound';
 import type { SaleRef, CaptureMethod, RefundKind } from '../../domain/value-objects';
 
 export interface PaymentIntentCommandPort {
-  create(input: { saleRef: SaleRef; amount: Money; captureMethod: CaptureMethod; provider?: 'STRIPE' | 'PAYPAL'; checkoutSnapshot?: unknown }): Promise<{ intentId: string; clientHandle: { provider: string; kind: string; value: string } }>;
+  create(input: { saleRef: SaleRef; amount: Money; captureMethod: CaptureMethod; provider?: string; checkoutSnapshot?: unknown; context?: PaymentRequestContext }): Promise<{ intentId: string; clientHandle: { provider: string; kind: string; value: string } }>;
 }
 
 export interface PaymentRefundPort {

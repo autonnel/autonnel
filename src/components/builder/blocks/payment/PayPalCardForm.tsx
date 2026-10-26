@@ -50,7 +50,7 @@ function paypalErrorCode(error: any): string | null {
   return error.name || error.code || error.type || null;
 }
 
-function savePaymentError(detailedError: string, code?: string | null) {
+function savePaymentError(detailedError: string, userMessage: string, code?: string | null) {
   const orderId = (window as any).__CHECKOUT_STATE__?.currentOrderId;
   if (orderId) {
     const saveErrorBody: ShopPayPalPaymentInput = {
@@ -67,7 +67,7 @@ function savePaymentError(detailedError: string, code?: string | null) {
   }
 
   window.dispatchEvent(new CustomEvent('autonnel:showPaymentError', {
-    detail: { message: 'Payment failed. Please try again.', provider: 'paypal', code: code ?? null },
+    detail: { message: userMessage, reason: detailedError, provider: 'paypal', code: code ?? null },
   }));
   track('PAYPAL_ERROR', { orderId, code: code ?? null });
 }
@@ -297,9 +297,9 @@ export function PayPalCardForm({
               return;
             }
             console.error('[PayPalCardForm] Error:', error);
-            setErrors({ general: 'Payment failed. Please try again.' });
+            setErrors({ general: t('payment.failedTryAgain') });
             setProcessing(false);
-            savePaymentError(rawPayPalError(error), paypalErrorCode(error));
+            savePaymentError(rawPayPalError(error), t('payment.failedTryAgain'), paypalErrorCode(error));
           },
         });
 
@@ -390,13 +390,13 @@ export function PayPalCardForm({
 
     if (!email || !checkoutState?.shippingAddress) {
       window.dispatchEvent(new CustomEvent('autonnel:formValidationError', { detail: {} }));
-      setErrors({ general: 'Please fill in all required shipping fields.' });
+      setErrors({ general: t('validation.fillShippingFields') });
       return;
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       window.dispatchEvent(new CustomEvent('autonnel:formValidationError', { detail: { invalidEmail: true } }));
-      setErrors({ general: 'Please enter a valid email address.' });
+      setErrors({ general: t('validation.invalidEmail') });
       return;
     }
 
@@ -407,9 +407,9 @@ export function PayPalCardForm({
       await cardFieldsRef.current.submit();
     } catch (error: any) {
       console.error('[PayPalCardForm] Submit error:', error);
-      setErrors({ general: 'Payment failed. Please try again.' });
+      setErrors({ general: t('payment.failedTryAgain') });
       setProcessing(false);
-      savePaymentError(rawPayPalError(error), paypalErrorCode(error));
+      savePaymentError(rawPayPalError(error), t('payment.failedTryAgain'), paypalErrorCode(error));
     }
   };
 

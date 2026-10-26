@@ -23,9 +23,20 @@ function captureGroups(source: string, pattern: RegExp): string[] {
   return out;
 }
 
+// Virtual-hosted endpoints (bucket already in the hostname, required by Aliyun OSS) must not repeat the bucket in the path.
+export function bucketBaseUrl(endpoint: string, bucket: string): string {
+  const origin = endpoint.replace(/\/+$/, '');
+  try {
+    if (new URL(origin).hostname.startsWith(`${bucket}.`)) return origin;
+  } catch {
+    // fall through to path-style
+  }
+  return `${origin}/${bucket}`;
+}
+
 export class EdgeS3Client {
   private readonly client: AwsClient;
-  private readonly origin: string;
+  private readonly bucketUrl: string;
   private readonly bucket: string;
   private readonly prefix: string;
 
@@ -36,7 +47,7 @@ export class EdgeS3Client {
       service: 's3',
       region: config.region || DEFAULT_REGION,
     });
-    this.origin = config.endpoint.replace(/\/+$/, '');
+    this.bucketUrl = bucketBaseUrl(config.endpoint, config.bucket);
     this.bucket = config.bucket;
     this.prefix = config.keyPrefix ?? '';
   }
@@ -53,7 +64,7 @@ export class EdgeS3Client {
   }
 
   private objectEndpoint(key: string): string {
-    return `${this.origin}/${this.bucket}/${this.toStorageKey(key)}`;
+    return `${this.bucketUrl}/${this.toStorageKey(key)}`;
   }
 
   async putObject(
@@ -116,7 +127,7 @@ export class EdgeS3Client {
   async listObjects(prefix: string, maxKeys = 1000): Promise<ListedObject[]> {
     const collected: ListedObject[] = [];
     const listPrefix = this.toStorageKey(prefix);
-    const base = `${this.origin}/${this.bucket}?list-type=2&prefix=${encodeURIComponent(listPrefix)}&max-keys=${maxKeys}`;
+    const base = `${this.bucketUrl}?list-type=2&prefix=${encodeURIComponent(listPrefix)}&max-keys=${maxKeys}`;
 
     let cursor: string | undefined;
     while (true) {

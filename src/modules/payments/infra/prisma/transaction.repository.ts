@@ -17,7 +17,7 @@ export class PrismaTransactionRepository implements TransactionRepositoryPort {
     return this.prisma.$transaction(async (tx: any) => {
       // Serialize concurrent refunds for the same intent: hold a row lock on the parent until commit,
       // so the prior-refund sum read below cannot be stale relative to another in-flight reservation.
-      await tx.$queryRaw`SELECT id FROM payment_intents WHERE id = ${input.parentTransactionId} FOR UPDATE`;
+      const [parent] = (await tx.$queryRaw`SELECT id, provider FROM payment_intents WHERE id = ${input.parentTransactionId} FOR UPDATE`) as Array<{ id: string; provider: string }>;
 
       const existing = await tx.transaction.findFirst({
         where: { tenantId, idempotencyKey: input.idempotencyKey, type: 'REFUND' },
@@ -43,7 +43,7 @@ export class PrismaTransactionRepository implements TransactionRepositoryPort {
           refundKind: decided.kind,
           amountMinor: decided.amount.amountMinor,
           currencyCode: decided.amount.currencyCode,
-          provider: 'STRIPE',
+          provider: parent?.provider ?? 'STRIPE',
           providerRefundRef: null,
           idempotencyKey: input.idempotencyKey,
           reason: decided.reason ?? null,

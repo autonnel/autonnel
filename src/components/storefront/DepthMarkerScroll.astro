@@ -1,0 +1,104 @@
+---
+// Shared by HtmlEditorPageLayout.astro and the non-HTML branch of
+// storefront/[...slug].astro. Keep this the only copy: the two callers must
+// stay byte-identical, and factoring it here is what enforces that.
+export interface Props {
+  depthMarker: number;
+}
+const { depthMarker } = Astro.props;
+---
+<script is:inline define:vars={{ depthMarker }}>
+  // Opened from the Interest panel to look at one depth band. Tracking is
+  // already off above, so looking never counts as a visit.
+  //
+  // The target is re-applied on an interval instead of once, because islands
+  // hydrating and images settling keep growing the page, so a single scroll
+  // undershoots the final position.
+  (function () {
+    var lastHeight = null;
+    var stableChecks = 0;
+    var elapsedMs = 0;
+    var intervalId = null;
+    var STEP_MS = 250;
+    var WINDOW_MS = 3000;
+    var SCROLL_KEYS = {
+      ArrowUp: 1,
+      ArrowDown: 1,
+      ArrowLeft: 1,
+      ArrowRight: 1,
+      PageUp: 1,
+      PageDown: 1,
+      Home: 1,
+      End: 1,
+      ' ': 1,
+      Spacebar: 1,
+    };
+
+    function apply() {
+      var h = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+      if (h <= 0) return;
+      var maxY = Math.max(0, h - window.innerHeight);
+      var y = Math.min(Math.round((h * depthMarker) / 100), maxY);
+      // storefront.css sets `scroll-behavior: smooth` on <html>; without an
+      // explicit 'instant' every apply animates, so the loop's own frames
+      // arrive far from the target and the next tick fights the animation.
+      try {
+        window.scrollTo({ top: y, left: 0, behavior: 'instant' });
+      } catch (e) {
+        window.scrollTo(0, y);
+      }
+      stableChecks = h === lastHeight ? stableChecks + 1 : 0;
+      lastHeight = h;
+    }
+
+    function stop() {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      window.removeEventListener('wheel', onUserInput);
+      window.removeEventListener('touchstart', onUserInput);
+      window.removeEventListener('keydown', onKeyDown);
+    }
+
+    // Takeover is detected from real input gestures, never from the `scroll`
+    // event. A scroll event is not evidence of a visitor: it also fires for
+    // smooth-scroll animation frames, for Chrome's scroll anchoring as the
+    // document grows, and for plain layout shifts - all of which land far
+    // from the position we set and used to disarm this loop within ~35ms of
+    // its own first scroll. With an input signal, anchoring is harmless: the
+    // next tick simply re-applies the correct position.
+    function onUserInput() {
+      stop();
+    }
+
+    function onKeyDown(event) {
+      if (SCROLL_KEYS[event.key] === 1) stop();
+    }
+
+    function start() {
+      window.addEventListener('wheel', onUserInput, { passive: true });
+      window.addEventListener('touchstart', onUserInput, { passive: true });
+      window.addEventListener('keydown', onKeyDown, { passive: true });
+      apply();
+
+      intervalId = setInterval(function () {
+        elapsedMs += STEP_MS;
+        apply();
+        // Height can only be trusted as settled once subresources are in;
+        // before that the loop keeps going until the bounded window ends.
+        var settled = stableChecks >= 1 && document.readyState === 'complete';
+        if (settled || elapsedMs >= WINDOW_MS) stop();
+      }, STEP_MS);
+    }
+
+    // Start as soon as the DOM is usable rather than at `load`: on a cold
+    // context `load` can be many seconds out while the document already sits
+    // at its final height, and every tick re-measures anyway.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start, { once: true });
+    } else {
+      start();
+    }
+  })();
+</script>

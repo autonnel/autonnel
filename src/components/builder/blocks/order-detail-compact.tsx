@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatPrice } from './useProductSelection';
 import { scaledFontSize } from '../TextField';
-import { useTranslation } from '../LanguageContext';
+import { useLanguage, useTranslation } from '../LanguageContext';
 import type { Order, OrderItem } from './order-detail-types';
 import { PaymentMethodDetails, renderAddress } from './order-detail-states';
 
@@ -31,6 +31,7 @@ interface CompactOrderCardProps {
 // two-column). Kept separate so the legacy "full" OrderDetailPanel render path
 // stays byte-for-byte unchanged for OSS consumers that pass no theme props.
 export function CompactOrderCard({ order, theme, showShippingAddress, showPaymentMethod, totalLabel }: CompactOrderCardProps) {
+  const language = useLanguage();
   const t = useTranslation();
   const currency = order.currency;
   const paid = order.items.filter((i) => i.price > 0);
@@ -92,7 +93,7 @@ export function CompactOrderCard({ order, theme, showShippingAddress, showPaymen
         {item.variant && <div style={{ fontSize: scaledFontSize(11), color: theme.mutedColor }}>{item.variant}</div>}
       </div>
       <div style={{ fontWeight: 700, color: theme.textColor, fontSize: scaledFontSize(13) }}>
-        {formatPrice(item.price * item.quantity, currency)}
+        {formatPrice(item.price * item.quantity, currency, language)}
       </div>
     </div>
   );
@@ -130,7 +131,7 @@ export function CompactOrderCard({ order, theme, showShippingAddress, showPaymen
         <div style={{ borderTop: `1px solid ${theme.borderColor}`, paddingTop: 10 }}>
           <div style={row({ fontSize: scaledFontSize(12), color: theme.mutedColor, marginBottom: 5 })}>
             <span>{t('orderDetails.subtotal')}</span>
-            <span>{formatPrice(order.subtotal, currency)}</span>
+            <span>{formatPrice(order.subtotal, currency, language)}</span>
           </div>
           {order.discount > 0 && (
             <div style={row({ fontSize: scaledFontSize(12), color: theme.savingColor, fontWeight: 700, marginBottom: 5 })}>
@@ -138,12 +139,12 @@ export function CompactOrderCard({ order, theme, showShippingAddress, showPaymen
                 {t('orderDetails.discount')}
                 {order.couponCode ? ` (${order.couponCode})` : ''}
               </span>
-              <span>{'−'}{formatPrice(order.discount, currency)}</span>
+              <span>{'−'}{formatPrice(order.discount, currency, language)}</span>
             </div>
           )}
           <div style={row({ fontWeight: 800, color: theme.textColor, fontSize: scaledFontSize(16) })}>
             <span>{totalLabel}</span>
-            <span>{formatPrice(order.total, currency)}</span>
+            <span>{formatPrice(order.total, currency, language)}</span>
           </div>
         </div>
 

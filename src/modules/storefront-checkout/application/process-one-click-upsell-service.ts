@@ -13,7 +13,6 @@ export interface OneClickUpsellDeps {
   publisher: DomainEventPublisherPort;
   newSaleId: () => string;
   clock: () => Date;
-  market: { countryCode: string; currencyCode: string };
 }
 
 export class ProcessOneClickUpsellService {
@@ -23,7 +22,7 @@ export class ProcessOneClickUpsellService {
     const session = await this.deps.sessions.load(sessionId);
     if (!session) throw new Error('FunnelSession not found');
     if (!session.buyer) throw new Error('Upsell requires the main-checkout buyer to be attached');
-    const [view] = await this.deps.catalog.resolve([input.variantExternalId], this.deps.market);
+    const [view] = await this.deps.catalog.resolve([input.variantExternalId], session.market);
     if (!view || !view.sellable) throw new Error('Upsell variant is not sellable');
 
     const line = OfferLineItem.create({

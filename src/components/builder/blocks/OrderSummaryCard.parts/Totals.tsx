@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { BadgeCheck, LockKeyhole, PackageCheck } from 'lucide-react';
 import { scaledFontSize } from '../../TextField';
 import { formatPrice } from '../ProductSelectionModal';
+import { useLanguage } from '../../LanguageContext';
 import { PALETTE, type MoneyContext, type SelectedProduct, type Translate } from './types';
 
 function SummaryRow({
@@ -62,9 +63,10 @@ export function TotalsBlock({
   money: MoneyContext;
   t: Translate;
 }) {
+  const language = useLanguage();
   const populated = products.length > 0;
-  const subtotalText = populated ? formatPrice(subtotal, money.currency) : '--';
-  const totalText = populated ? formatPrice(total, money.currency) : '--';
+  const subtotalText = populated ? formatPrice(subtotal, money.currency, language) : '--';
+  const totalText = populated ? formatPrice(total, money.currency, language) : '--';
 
   return (
     <div style={{ paddingTop: 16, borderTop: `1px solid ${money.borderColor}` }}>
@@ -72,7 +74,7 @@ export function TotalsBlock({
       {discount > 0 ? (
         <SummaryRow
           label={t('orderSummary.discount')}
-          value={`-${formatPrice(discount, money.currency)}`}
+          value={`-${formatPrice(discount, money.currency, language)}`}
           tone="success"
           money={money}
         />

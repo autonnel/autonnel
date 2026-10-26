@@ -29,6 +29,9 @@ export const RATE_LIMITS = {
   MAINTENANCE_UNLOCK_PER_IP: { limit: 5, windowSeconds: 15 * 60 },
   // Global bucket bounds total bcrypt work even when the source cannot be attributed.
   MAINTENANCE_UNLOCK_GLOBAL: { limit: 60, windowSeconds: 15 * 60 },
+  // Manual "refresh now" ad insights sync: at most one trigger per tenant per 60s, so a user
+  // mashing the button can't burn the ad platforms' rate limits.
+  ADS_INSIGHTS_MANUAL_REFRESH: { limit: 1, windowSeconds: 60 },
 } as const;
 
 export type RateLimitRule = { limit: number; windowSeconds: number };

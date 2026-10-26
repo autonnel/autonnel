@@ -29,10 +29,15 @@ const INTERVAL_TOLERANCE = 0.9;
 // expressions, so without this a job declaring `*/30` still ran every 5 minutes because some
 // other job's `*/5` trigger fired the handler. Both the lock and the marker are best-effort
 // (read-then-write on KV/memory, TTL-expiring).
-export async function runSweep<T>(name: string, fn: () => Promise<T>): Promise<T | undefined> {
+// `schedule` covers sweeps outside the static catalog (plugin crons registered at runtime).
+export async function runSweep<T>(
+  name: string,
+  fn: () => Promise<T>,
+  schedule?: { intervalMs: number; lockTtlSeconds: number },
+): Promise<T | undefined> {
   const cache = getCache();
-  const ttl = lockTtlByName.get(name);
-  const intervalMs = intervalByName.get(name);
+  const ttl = schedule?.lockTtlSeconds ?? lockTtlByName.get(name);
+  const intervalMs = schedule?.intervalMs ?? intervalByName.get(name);
 
   // Cheap pre-gate, OUTSIDE the lock. acquireLock is a KV write and releaseLock a KV delete, so
   // locking first made every job pay both on EVERY tick — including the overwhelming majority of

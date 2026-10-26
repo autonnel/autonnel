@@ -6,10 +6,14 @@ import { Money } from '@/modules/shared-kernel/money';
 import { ExternalRef } from '@/modules/commerce-gateway/domain/value-objects/external-ref';
 import { Market } from '@/modules/commerce-gateway/domain/value-objects/market';
 import { makeCommerceGatewayReadSide } from '@/composition/make-commerce-gateway';
-import { createPaymentProvider } from '@/modules/payments/infra/providers/provider-factory';
-import { AppConfigTenantConfigAdapter } from '@/modules/payments/infra/config/tenant-config.adapter';
 import { PrismaPaymentIntentRepository } from '@/modules/payments/infra/prisma/payment-intent.repository';
-import { makeConfirmPayPalOrder } from '@/composition/make-payments';
+import { makeConfirmPayPalOrder, resolvePaymentProvider } from '@/composition/make-payments';
+import { buildPaymentRequestContext, safeLocalPath, type CheckoutRequestInfo } from './payment-request-context';
+import {
+  finalizeHostedUpsellWith, hostedSessionRef, pendingUpsellsOf, reconcilePendingHostedUpsellsWith, snapshotWithEntryPatch, snapshotWithPending, hasPendingEntry,
+  HOSTED_UPSELL_WINDOW_MS, type HostedUpsellOutcome, type PendingHostedUpsell,
+} from './hosted-upsell';
+import type { PaymentProviderPort, ProviderCaptureResult } from '@/modules/payments/application/ports/outbound';
 import { PrismaOrderRepository } from '@/modules/order-fulfillment/infra/prisma/order.repository';
 import { OfferLineSnapshot } from '@/modules/order-fulfillment/domain/value-objects';
 import { getFunnelContext } from '@/lib/storefront/storefront-data.service';
@@ -19,6 +23,7 @@ import { storefrontCheckoutDepsFromLocals } from '@/composition/storefront-runti
 import { IdempotencyKey } from '@/modules/shared-kernel/idempotency-key';
 import { runDeferredHandoffSweep } from '@/modules/payments/application/handoff-deferred-cron';
 import { submitIndependentUpsell } from './handoff-coordinator';
+import { dispatchPluginConversion, hasConversionSubscribers, loadVisitedUrls } from './plugin-runtime';
 import type { ShopUpsellInput, ShopUpsellDto } from '@/contracts/shop';
 
 interface SnapshotLine { variantExternalId: string; title: string; quantity: number; unitPriceMinor: number; currencyCode: string; capturedAt: string; upsellIndex?: number; }
@@ -35,9 +40,31 @@ interface IntentRow {
   providerIntentId: string | null;
   stripeCustomerId: string | null;
   stripePaymentMethodId: string | null;
+  vaultRef: string | null;
   captureDeferred: boolean;
   handoffDeferred: boolean;
   checkoutSnapshot: unknown;
+  pendingUpsellSince?: Date | null;
+}
+
+const AMBIGUOUS_CHARGE_CODES = new Set(['pending_timeout', 'unknown_outcome']);
+const AMBIGUOUS_CHARGE_MESSAGE = 'Your payment is still being confirmed. Please do not pay again; we will update your order shortly.';
+const VAULT_WAIT_MS = 5000;
+const VAULT_POLL_MS = 1000;
+
+// The reusable credential of hosted-page providers arrives with the provider notification, which
+// can land a moment after the buyer reaches the upsell page.
+async function waitForVault(saleRef: string, intent: IntentRow): Promise<IntentRow> {
+  let current = intent;
+  for (let waited = 0; !offSessionMethod(current) && waited < VAULT_WAIT_MS; waited += VAULT_POLL_MS) {
+    await new Promise((resolve) => setTimeout(resolve, VAULT_POLL_MS));
+    current = (await loadIntent(saleRef)) ?? current;
+  }
+  return current;
+}
+
+function offSessionMethod(intent: IntentRow): string | null {
+  return intent.stripePaymentMethodId ?? intent.vaultRef ?? null;
 }
 
 function upsellKey(saleRef: string, upsellIndex: number): string {
@@ -68,7 +95,7 @@ async function loadIntent(saleRef: string): Promise<IntentRow | null> {
     where: { tenantId_saleRef: { tenantId: getCurrentTenantId(), saleRef } },
     select: {
       id: true, provider: true, status: true, currencyCode: true, providerIntentId: true,
-      stripeCustomerId: true, stripePaymentMethodId: true, captureDeferred: true, handoffDeferred: true, checkoutSnapshot: true,
+      stripeCustomerId: true, stripePaymentMethodId: true, vaultRef: true, captureDeferred: true, handoffDeferred: true, checkoutSnapshot: true, pendingUpsellSince: true,
     },
   });
   return (row as IntentRow | null) ?? null;
@@ -89,7 +116,8 @@ function appendedSnapshotLines(snapshot: Snapshot, line: ResolvedLine, upsellInd
 
 // Stripe captures the upsell as a SEPARATE charge but the ecommerce push is ONE merged order: keep
 // the intent's snapshot (handoff lines) + capturedMinor (handoff total) in sync with the appended line.
-async function recordStripeUpsellForMergedPush(saleRef: string, snapshot: Snapshot, line: ResolvedLine, upsellIndex: number): Promise<void> {
+async function recordStripeUpsellForMergedPush(saleRef: string, loaded: Snapshot, line: ResolvedLine, upsellIndex: number): Promise<void> {
+  const snapshot = ((await loadIntent(saleRef))?.checkoutSnapshot as Snapshot | null | undefined) ?? loaded;
   await new PrismaPaymentIntentRepository(getTenantPrisma()).updateCheckoutSnapshotBySaleRef(saleRef, { ...snapshot, lines: appendedSnapshotLines(snapshot, line, upsellIndex) });
   await getBasePrisma().paymentIntent.update({
     where: { tenantId_saleRef: { tenantId: getCurrentTenantId(), saleRef } },
@@ -178,7 +206,7 @@ export async function declineUpsell(input: ShopUpsellInput, locals?: unknown): P
       if (intent.provider === 'PAYPAL' && intent.captureDeferred && intent.status === 'AUTHORIZED') {
         const cap = await makeConfirmPayPalOrder().captureNow({ saleRef: input.parentOrderId });
         if (cap.status === 'succeeded') await runCheckoutDrain(getCurrentTenantId(), input.parentOrderId, locals);
-      } else if (intent.provider === 'STRIPE' && intent.handoffDeferred && intent.status === 'CAPTURED') {
+      } else if (intent.handoffDeferred && intent.status === 'CAPTURED') {
         await triggerMergedHandoff(input.parentOrderId, locals);
       }
     }
@@ -189,7 +217,7 @@ export async function declineUpsell(input: ShopUpsellInput, locals?: unknown): P
   return { success: true, action: 'declined', nextStepUrl };
 }
 
-export async function acceptUpsell(input: ShopUpsellInput, locals: unknown): Promise<ShopUpsellDto> {
+export async function acceptUpsell(input: ShopUpsellInput, locals: unknown, request?: CheckoutRequestInfo): Promise<ShopUpsellDto> {
   const saleRef = input.parentOrderId;
   const upsellIndex = input.upsellIndex ?? 0;
   const quantity = Math.max(1, input.quantity ?? 1);
@@ -212,19 +240,27 @@ export async function acceptUpsell(input: ShopUpsellInput, locals: unknown): Pro
   const line: ResolvedLine = { externalRef, title: view.title || 'Upsell', quantity, unitMinor, lineMinor: unitMinor * quantity, currency };
   const addedItem = { externalRef, title: line.title, quantity, unitPriceMinor: unitMinor };
 
-  if (intent.provider === 'STRIPE') return acceptStripeUpsell({ intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals });
-  if (intent.provider === 'PAYPAL') return acceptPaypalUpsell({ intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals });
+  const provider = await resolvePaymentProvider(intent.provider);
+  if (provider.patchOrderAmount) return acceptPaypalUpsell({ intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals, provider });
+  if (provider.chargeOffSession) return acceptOffSessionUpsell({ intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals, provider, request });
   return { success: false, error: 'Upsell not available for this payment method', nextStepUrl };
 }
 
-// Stripe: each accepted upsell is a separate off-session charge on the saved card; the base order
+// Off-session: each accepted upsell is a separate charge on the saved payment method; the base order
 // already exists, so append the line to it.
-async function acceptStripeUpsell(p: {
+async function acceptOffSessionUpsell(p: {
   intent: IntentRow; input: ShopUpsellInput; saleRef: string; upsellIndex: number; line: ResolvedLine;
   addedItem: Record<string, unknown>; nextStepUrl?: string; locals: unknown;
+  provider: PaymentProviderPort; request?: CheckoutRequestInfo;
 }): Promise<ShopUpsellDto> {
-  const { intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals } = p;
-  if (intent.status !== 'CAPTURED' || !intent.stripeCustomerId || !intent.stripePaymentMethodId) {
+  const { intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals, provider, request } = p;
+  const ready = intent.status === 'CAPTURED' && intent.provider !== 'STRIPE' ? await waitForVault(saleRef, intent) : intent;
+  const paymentMethodId = offSessionMethod(ready);
+  if (ready.status === 'CAPTURED' && !paymentMethodId && ready.provider !== 'STRIPE' && request) {
+    const hosted = await startHostedUpsell({ intent: ready, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals, provider, request });
+    if (hosted) return hosted;
+  }
+  if (ready.status !== 'CAPTURED' || !paymentMethodId) {
     return { success: false, error: 'Saved payment method unavailable', nextStepUrl };
   }
   const tenantId = getCurrentTenantId();
@@ -242,33 +278,178 @@ async function acceptStripeUpsell(p: {
     return { success: true, action: 'accepted', order: await loadOrderSummary(saleRef), addedItem, nextStepUrl };
   }
 
-  const provider = await createPaymentProvider('STRIPE', await new AppConfigTenantConfigAdapter().providerConfig('STRIPE'));
-  if (!provider.chargeOffSession) return { success: false, error: 'Off-session charge unsupported', nextStepUrl };
-
-  const result = await provider.chargeOffSession({
-    customerId: intent.stripeCustomerId,
-    paymentMethodId: intent.stripePaymentMethodId,
+  const snapshot = (ready.checkoutSnapshot ?? null) as Snapshot | null;
+  const result = await provider.chargeOffSession!({
+    customerId: ready.stripeCustomerId ?? undefined,
+    paymentMethodId,
     amountMinor: line.lineMinor,
     currencyCode: line.currency,
     idempotencyKey,
     saleRef,
+    context: {
+      ...buildPaymentRequestContext({ slug: ready.provider, saleRef, snapshot: snapshot as never }),
+      lines: [{ sku: line.externalRef, title: line.title, quantity: line.quantity, unitPriceMinor: line.unitMinor, currencyCode: line.currency }],
+      clientIp: request?.clientIp,
+      userAgent: request?.userAgent,
+      notifyUrl: request ? new URL(`/api/shop/payment/webhook/${ready.provider.toLowerCase()}`, request.origin).toString() : undefined,
+    },
   });
   if (result.status !== 'CAPTURED' || !result.capture) {
+    const code = result.error?.code;
+    if (code && AMBIGUOUS_CHARGE_CODES.has(code)) {
+      logger.error('Upsell charge outcome is ambiguous; manual reconciliation required', { saleRef, upsellIndex, code });
+      return { success: false, error: AMBIGUOUS_CHARGE_MESSAGE, nextStepUrl };
+    }
     const error = result.status === 'REQUIRES_ACTION' ? 'Your bank requires authentication for this charge' : 'Card was declined';
     logger.warn('Upsell charge not captured', { saleRef, upsellIndex, status: result.status });
     return { success: false, error, nextStepUrl };
   }
 
+  const order = await recordUpsellCharge({ saleRef, intent: ready, upsellIndex, line, capture: result.capture, pageId: input?.pageId, funnelId: input?.funnelId, locals });
+  logger.info('Upsell accepted (off-session)', { saleRef, upsellIndex, provider: ready.provider, amountMinor: line.lineMinor });
+  return { success: true, action: 'accepted', order, addedItem, nextStepUrl };
+}
+
+async function recordedCharge(saleRef: string, upsellIndex: number): Promise<{ chargeRef: string | null } | null> {
+  const row = await getBasePrisma().transaction.findUnique({
+    where: { tenantId_idempotencyKey: { tenantId: getCurrentTenantId(), idempotencyKey: upsellKey(saleRef, upsellIndex) } },
+    select: { id: true, chargeRef: true },
+  });
+  return row ? { chargeRef: (row as { chargeRef?: string | null }).chargeRef ?? null } : null;
+}
+
+// Re-reads the snapshot right before writing so changes made while a provider call was in flight
+// survive, and keeps the sweep marker in step with whether any entry is still pending.
+async function mutatePendingSnapshot(saleRef: string, change: (snapshot: unknown) => unknown, refreshMarker = false): Promise<void> {
+  const fresh = await loadIntent(saleRef);
+  if (!fresh) return;
+  const next = change(fresh.checkoutSnapshot);
+  await new PrismaPaymentIntentRepository(getTenantPrisma()).updateCheckoutSnapshotBySaleRef(saleRef, next);
+  const wantsMarker = hasPendingEntry(next);
+  const hasMarker = fresh.pendingUpsellSince != null;
+  if (wantsMarker === hasMarker && !(refreshMarker && wantsMarker)) return;
+  await getBasePrisma().paymentIntent.update({
+    where: { tenantId_saleRef: { tenantId: getCurrentTenantId(), saleRef } },
+    data: { pendingUpsellSince: wantsMarker ? new Date() : null },
+  });
+}
+
+// No reusable credential (hosted-page providers): the upsell is paid on a second hosted page and
+// confirmed later by a status query, see finalizeHostedUpsell.
+async function startHostedUpsell(p: {
+  intent: IntentRow; input: ShopUpsellInput; saleRef: string; upsellIndex: number; line: ResolvedLine;
+  addedItem: Record<string, unknown>; nextStepUrl?: string; locals: unknown; provider: PaymentProviderPort; request: CheckoutRequestInfo;
+}): Promise<ShopUpsellDto | null> {
+  const { intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals, provider, request } = p;
+  const previous = pendingUpsellsOf(intent.checkoutSnapshot)[String(upsellIndex)];
+  // A buyer who paid on an earlier page and clicked again must not be charged twice.
+  const settled = previous
+    ? (await finalizeHostedUpsell(saleRef, upsellIndex, locals).catch((error) => {
+        logger.error('Finalizing the earlier hosted upsell failed; opening a new attempt', { error, saleRef, upsellIndex });
+        return 'pending' as const;
+      })) === 'captured'
+    : !!(await recordedCharge(saleRef, upsellIndex));
+  if (settled) return { success: true, action: 'accepted', order: await loadOrderSummary(saleRef), addedItem, nextStepUrl };
+
+  const attempt = (previous?.sessionRefs.length ?? 0) + 1;
+  const sessionRef = hostedSessionRef(saleRef, upsellIndex, attempt);
+  const slug = intent.provider.toLowerCase();
+  const returnUrl = new URL(`/api/shop/payment/upsell-return/${slug}`, request.origin);
+  returnUrl.searchParams.set('saleRef', saleRef);
+  returnUrl.searchParams.set('n', String(upsellIndex));
+  const created = await provider.createIntent({
+    amountMinor: line.lineMinor,
+    currencyCode: line.currency,
+    captureMethod: 'automatic',
+    idempotencyKey: sessionRef,
+    saleRef: sessionRef,
+    context: {
+      ...buildPaymentRequestContext({ slug: intent.provider, saleRef: sessionRef, snapshot: (intent.checkoutSnapshot ?? undefined) as never }),
+      lines: [{ sku: line.externalRef, title: line.title, quantity: line.quantity, unitPriceMinor: line.unitMinor, currencyCode: line.currency }],
+      returnUrl: returnUrl.toString(),
+      notifyUrl: new URL(`/api/shop/payment/webhook/${slug}`, request.origin).toString(),
+      clientIp: request.clientIp,
+      userAgent: request.userAgent,
+    },
+  });
+  if (created.clientHandle.kind !== 'redirect_url') return null;
+
+  const entry: PendingHostedUpsell = {
+    upsellIndex, sessionRef, sessionRefs: [sessionRef], status: 'pending', attempt, line, nextStepUrl,
+    cancelTo: safeLocalPath(input.cancelTo, '') || undefined,
+    pageId: input.pageId, funnelId: input.funnelId,
+    createdAt: new Date().toISOString(),
+  };
+  await mutatePendingSnapshot(saleRef, (snapshot) => snapshotWithPending(snapshot, entry), true);
+  logger.info('Upsell redirected to hosted page', { saleRef, upsellIndex, attempt, provider: intent.provider });
+  return { success: true, action: 'redirect', redirectUrl: created.clientHandle.value };
+}
+
+export async function finalizeHostedUpsell(saleRef: string, upsellIndex: number, locals: unknown): Promise<HostedUpsellOutcome> {
+  return finalizeHostedUpsellWith<IntentRow>({
+    loadIntent,
+    recordedCharge,
+    queryStatus: async (intent, sessionRef, hint) => (await resolvePaymentProvider(intent.provider)).getIntent(sessionRef, hint),
+    recordCharge: async (intent, entry, capture) => {
+      await recordUpsellCharge({ saleRef, intent, upsellIndex, line: entry.line, capture, pageId: entry.pageId, funnelId: entry.funnelId, locals, stopIfRecorded: true });
+    },
+    updateEntry: (ref, n, patch) => mutatePendingSnapshot(ref, (snapshot) => snapshotWithEntryPatch(snapshot, n, patch)),
+    onPaidTwice: (ref, n, sessionRef, providerChargeId) =>
+      logger.error('hosted upsell paid twice; refund required', { saleRef: ref, upsellIndex: n, sessionRef, providerChargeId }),
+    onQueryError: (error, ref, sessionRef) => logger.warn('Hosted upsell status query failed', { error, saleRef: ref, sessionRef }),
+  }, saleRef, upsellIndex);
+}
+
+export async function loadPendingHostedUpsell(saleRef: string, upsellIndex: number): Promise<PendingHostedUpsell | undefined> {
+  return pendingUpsellsOf((await loadIntent(saleRef))?.checkoutSnapshot)[String(upsellIndex)];
+}
+
+// Sweep for buyers who never came back from the hosted page. `pendingUpsellSince` marks intents
+// holding at least one pending entry, so the scan needs no JSON filtering and cannot be crowded out
+// by unrelated rows. The tenant client scopes it to the current tenant.
+export async function reconcilePendingHostedUpsells(limit = 50): Promise<{ scanned: number; captured: number; errors: number }> {
+  return reconcilePendingHostedUpsellsWith({
+    candidates: async () => {
+      const rows = await getTenantPrisma().paymentIntent.findMany({
+        where: { pendingUpsellSince: { not: null, gt: new Date(Date.now() - HOSTED_UPSELL_WINDOW_MS) } },
+        select: { saleRef: true, checkoutSnapshot: true },
+        orderBy: { pendingUpsellSince: 'asc' },
+        take: limit,
+      });
+      return rows as Array<{ saleRef: string; checkoutSnapshot: unknown }>;
+    },
+    finalize: (saleRef, upsellIndex) => finalizeHostedUpsell(saleRef, upsellIndex, undefined),
+    onError: (error, saleRef, upsellIndex) => logger.error('Hosted upsell reconcile failed', { error, saleRef, upsellIndex }),
+  }, limit);
+}
+
+// Post-charge steps shared by the off-session and hosted-page paths: record the CHARGE, notify
+// conversion subscribers, append the order line and hand the line to the ecommerce push.
+async function recordUpsellCharge(p: {
+  saleRef: string; intent: IntentRow; upsellIndex: number; line: ResolvedLine; capture: ProviderCaptureResult;
+  pageId?: string; funnelId?: string; locals: unknown; stopIfRecorded?: boolean;
+}): Promise<{ id: string; orderNumber: string; total: number; currency: string; items: unknown } | undefined> {
+  const { saleRef, intent, upsellIndex, line, capture, locals } = p;
+  const idempotencyKey = upsellKey(saleRef, upsellIndex);
+  const snapshot = (intent.checkoutSnapshot ?? null) as Snapshot | null;
+  const last = await isLastUpsell(p.pageId, p.funnelId);
+  let recorded = true;
   try {
     await getTenantPrisma().transaction.create({
       data: {
         type: 'CHARGE', status: 'SUCCEEDED', amountMinor: line.lineMinor, currencyCode: line.currency,
-        provider: 'STRIPE', providerRefundRef: result.capture.providerChargeId, parentTransactionId: intent.id,
-        chargeRef: result.capture.providerChargeId, idempotencyKey,
+        provider: intent.provider, providerRefundRef: capture.providerChargeId, parentTransactionId: intent.id,
+        chargeRef: capture.providerChargeId, idempotencyKey,
       } as never,
     });
   } catch (err) {
     if ((err as { code?: string })?.code !== 'P2002') throw err;
+    recorded = false;
+    if (p.stopIfRecorded) return undefined;
+  }
+  if (recorded) {
+    await dispatchUpsellConversion(saleRef, intent, line, upsellIndex, locals).catch((err) =>
+      logger.error('Plugin upsell conversion dispatch failed', { error: err, saleRef, upsellIndex }));
   }
 
   const order = await appendLineToOrder(saleRef, line, locals).catch((err) => {
@@ -277,7 +458,6 @@ async function acceptStripeUpsell(p: {
   });
   // Keep the held merged push (snapshot lines + total) in sync, then fire it once on the last step.
   if (intent.handoffDeferred) {
-    const snapshot = (intent.checkoutSnapshot ?? null) as Snapshot | null;
     if (snapshot && Array.isArray(snapshot.lines)) {
       await recordStripeUpsellForMergedPush(saleRef, snapshot, line, upsellIndex).catch((err) =>
         logger.error('Failed to record Stripe upsell for merged push', { error: err, saleRef, upsellIndex }));
@@ -291,8 +471,25 @@ async function acceptStripeUpsell(p: {
     await pushUpsellIndependently(saleRef, intent, line, upsellIndex).catch((err) =>
       logger.error('Independent upsell push failed (cron will retry)', { error: err, saleRef, upsellIndex }));
   }
-  logger.info('Upsell accepted (Stripe)', { saleRef, upsellIndex, amountMinor: line.lineMinor });
-  return { success: true, action: 'accepted', order, addedItem, nextStepUrl };
+  return order;
+}
+
+async function dispatchUpsellConversion(saleRef: string, intent: IntentRow, line: ResolvedLine, upsellIndex: number, locals: unknown): Promise<void> {
+  if (!hasConversionSubscribers()) return;
+  const snapshot = (intent.checkoutSnapshot ?? null) as (Snapshot & { visitorId?: string | null; funnelId?: string | null }) | null;
+  await dispatchPluginConversion(
+    {
+      kind: 'upsell',
+      conversionId: `${saleRef}-upsell-${upsellIndex}`,
+      saleRef,
+      amountMinor: line.lineMinor,
+      currencyCode: line.currency,
+      funnelId: snapshot?.funnelId ?? undefined,
+      visitedUrls: await loadVisitedUrls(getCurrentTenantId(), snapshot?.visitorId ?? undefined),
+      occurredAt: new Date().toISOString(),
+    },
+    locals as never,
+  );
 }
 
 async function pushUpsellIndependently(saleRef: string, intent: IntentRow, line: ResolvedLine, upsellIndex: number): Promise<void> {
@@ -319,9 +516,9 @@ async function pushUpsellIndependently(saleRef: string, intent: IntentRow, line:
 // then materializes with base + all accepted upsells.
 async function acceptPaypalUpsell(p: {
   intent: IntentRow; input: ShopUpsellInput; saleRef: string; upsellIndex: number; line: ResolvedLine;
-  addedItem: Record<string, unknown>; nextStepUrl?: string; locals: unknown;
+  addedItem: Record<string, unknown>; nextStepUrl?: string; locals: unknown; provider: PaymentProviderPort;
 }): Promise<ShopUpsellDto> {
-  const { intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals } = p;
+  const { intent, input, saleRef, upsellIndex, line, addedItem, nextStepUrl, locals, provider } = p;
   if (!intent.captureDeferred || intent.status !== 'AUTHORIZED' || !intent.providerIntentId) {
     return { success: false, error: 'Upsell not available for this order', nextStepUrl };
   }
@@ -335,7 +532,6 @@ async function acceptPaypalUpsell(p: {
       { variantExternalId: line.externalRef, title: line.title, quantity: line.quantity, unitPriceMinor: line.unitMinor, currencyCode: line.currency, capturedAt: new Date().toISOString(), upsellIndex },
     ];
     const newTotalMinor = updatedLines.reduce((s, l) => s + l.unitPriceMinor * l.quantity, 0);
-    const provider = await createPaymentProvider('PAYPAL', await new AppConfigTenantConfigAdapter().providerConfig('PAYPAL'));
     if (!provider.patchOrderAmount) return { success: false, error: 'Upsell not supported', nextStepUrl };
     await provider.patchOrderAmount(intent.providerIntentId, line.currency, newTotalMinor);
     await new PrismaPaymentIntentRepository(getTenantPrisma()).updateCheckoutSnapshotBySaleRef(saleRef, { ...snapshot, lines: updatedLines });

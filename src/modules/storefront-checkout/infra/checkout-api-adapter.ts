@@ -1,5 +1,6 @@
 import { createLogger } from '@/lib/logger';
 import { validateCheckoutRequest } from './checkout-request-validation';
+import { SubtotalBelowMinimumError } from '../domain/services/coupon-evaluation-service';
 
 const logger = createLogger('CheckoutApi');
 
@@ -35,7 +36,7 @@ export async function handleCheckoutRequest(
         return { status: 200, body: { sessionId: session.sessionId, currentStep: session.currentStep.value }, setSessionCookie: await surface.sessions.signCookieValue(session.sessionId) };
       }
       case 'cart':
-        await surface.addToCart.execute(sessionId!, { variantExternalId: body.variantExternalId, quantity: body.quantity });
+        await surface.addToCart.execute(sessionId!, { variantExternalId: body.variantExternalId, quantity: body.quantity, replace: body.replace === true });
         return { status: 200, body: { ok: true } };
       case 'coupon':
         return { status: 200, body: await surface.applyCoupon.execute(sessionId!, body.code) };
@@ -52,6 +53,7 @@ export async function handleCheckoutRequest(
     }
   } catch (err) {
     logger.warn('Checkout action failed', { action, error: err });
-    return { status: 422, body: { error: 'checkout_failed', message: (err as Error).message } };
+    const minOrder = err instanceof SubtotalBelowMinimumError ? { minOrder: err.minOrder } : {};
+    return { status: 422, body: { error: 'checkout_failed', message: (err as Error).message, ...minOrder } };
   }
 }

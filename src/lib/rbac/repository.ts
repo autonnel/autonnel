@@ -277,7 +277,7 @@ export class PrismaPermissionRepository implements IPermissionRepository {
       () =>
         getBasePrisma().user.findMany({
           where: { id: { in: userIds } },
-          select: { id: true, email: true },
+          select: { id: true, email: true, name: true },
         }),
       () => getBasePrisma().role.findMany({ where: { tenantId }, select: { id: true, name: true } }),
     ]);
@@ -285,7 +285,7 @@ export class PrismaPermissionRepository implements IPermissionRepository {
     const roleNameById = new Map(roles.map((r) => [r.id, r.name] as const));
     const adminRoleId = roles.find((r) => r.name === VIRTUAL_ADMIN_ROLE_NAME)?.id ?? null;
     const linksByUser = new Map<string, string[]>(memberships.map((m) => [m.userId, m.roleIds] as const));
-    const emailById = new Map(users.map((u) => [u.id, u.email] as const));
+    const userById = new Map(users.map((u) => [u.id, u] as const));
 
     return userIds.map((id) => {
       const roleIds = linksByUser.get(id) ?? [];
@@ -296,8 +296,8 @@ export class PrismaPermissionRepository implements IPermissionRepository {
         .map((rid) => ({ id: rid, name: roleNameById.get(rid)! }));
       return {
         id,
-        email: emailById.get(id) ?? null,
-        name: null,
+        email: userById.get(id)?.email ?? null,
+        name: userById.get(id)?.name ?? null,
         avatar: null,
         roles: [...adminFirst, ...custom],
       };
@@ -315,12 +315,12 @@ export class PrismaPermissionRepository implements IPermissionRepository {
     if (userIds.length === 0) return [];
     const users = await getBasePrisma().user.findMany({
       where: { id: { in: userIds } },
-      select: { id: true, email: true },
+      select: { id: true, email: true, name: true },
     });
-    const byId = new Map(users.map((u) => [u.id, u.email] as const));
+    const byId = new Map(users.map((u) => [u.id, u] as const));
     return userIds
       .filter((id) => byId.has(id))
-      .map((id) => ({ id, email: byId.get(id) ?? null, name: null, avatar: null }));
+      .map((id) => ({ id, email: byId.get(id)!.email, name: byId.get(id)!.name, avatar: null }));
   }
 }
 

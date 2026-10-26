@@ -1,5 +1,6 @@
 ---
 import ErrorLayout from '@/components/layout/ErrorLayout.astro';
+import LinkParams from '@/components/storefront/LinkParams.astro';
 
 Astro.response.status = 404;
 Astro.response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -17,4 +18,5 @@ const slug = url.pathname || '/';
   detailLabel="Path"
 >
   <a href="/" class="btn-primary">Go home</a>
+  <LinkParams />
 </ErrorLayout>

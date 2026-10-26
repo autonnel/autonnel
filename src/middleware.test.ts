@@ -1,7 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { onRequest } from './middleware';
 import { getCurrentTenantId } from '@/modules/identity/infra/als-tenant-context';
 import { DEFAULT_TENANT } from '@/modules/shared-kernel/tenant-id';
+
+// undici drops a Host header passed to Request, so attach it after construction.
+function apiCtx(path: string, sessionCookie = false): any {
+  const request = new Request(`https://admin.example.com${path}`, { method: 'POST' });
+  Object.defineProperty(request, 'headers', { value: new Headers({ host: 'admin.example.com' }) });
+  return {
+    request,
+    locals: {},
+    cookies: { has: (name: string) => sessionCookie && name === 'autonnel_session' },
+  };
+}
 
 describe('AstroAuthMiddleware', () => {
   it('runs the downstream handler inside an ALS context with a resolved tenantId', async () => {
@@ -57,5 +68,37 @@ describe('AstroAuthMiddleware', () => {
     };
     await onRequest(ctx, vi.fn(async () => new Response('ok')));
     expect(ctx.locals.cfContext).toBe(cfContext);
+  });
+
+  describe('expired admin session on API routes', () => {
+    const prevAdminDomain = process.env.ADMIN_DOMAIN;
+    beforeEach(() => {
+      process.env.ADMIN_DOMAIN = 'admin.example.com';
+    });
+    afterEach(() => {
+      process.env.ADMIN_DOMAIN = prevAdminDomain;
+    });
+
+    it('answers 401 without running the handler when the session cookie no longer resolves', async () => {
+      const next = vi.fn(async () => new Response('{}', { status: 403 }));
+      const res = await onRequest(apiCtx('/api/page/p1/import-html', true), next);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Unauthorized' });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('leaves requests without a session cookie to the route', async () => {
+      const res = await onRequest(apiCtx('/api/page'), vi.fn(async () => new Response('{}', { status: 403 })));
+      expect(res.status).toBe(403);
+    });
+
+    it('leaves public storefront and auth APIs alone for a stale cookie', async () => {
+      for (const path of ['/api/shop/cart', '/api/checkout/session', '/api/auth/logout']) {
+        const next = vi.fn(async () => new Response('ok'));
+        const res = await onRequest(apiCtx(path, true), next);
+        expect(res.status).toBe(200);
+        expect(next).toHaveBeenCalledTimes(1);
+      }
+    });
   });
 });

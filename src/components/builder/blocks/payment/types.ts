@@ -15,7 +15,8 @@ export interface PaymentEntryFormProps {
   padding?: number;
 }
 
-export type PaymentMethodType = 'paypal' | 'paypal-card' | 'card';
+// Built-in tabs plus plugin redirect providers, keyed by their payment method id.
+export type PaymentMethodType = 'paypal' | 'paypal-card' | 'card' | (string & {});
 
 export interface PaymentConfig {
   paypal?: {

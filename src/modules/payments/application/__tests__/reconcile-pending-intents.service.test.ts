@@ -20,13 +20,22 @@ describe('ReconcilePendingIntentsService', () => {
       getIntent: vi.fn(async () => ({ status: 'CAPTURED', capture: { providerChargeId: 'ch_1', capturedAmountMinor: 1999, currencyCode: 'USD', capturedAt: new Date().toISOString() } })),
       createIntent: vi.fn(), authorize: vi.fn(), capture: vi.fn(), cancel: vi.fn(), refund: vi.fn(), verifyWebhookSignature: vi.fn(), parseWebhook: vi.fn(),
     };
-    const intentRepo = { findStaleProcessing: vi.fn(async () => [intent]), save: vi.fn(), findById: vi.fn(), findByProviderRef: vi.fn(), findBySaleRef: vi.fn() };
+    const intentRepo = { findStaleProcessing: vi.fn(async () => [intent]), save: vi.fn(), findById: vi.fn(), findByProviderRef: vi.fn(), findBySaleRef: vi.fn(async () => intent), claimCapture: vi.fn(async () => true), releaseCapture: vi.fn(), setVaultRef: vi.fn() };
     const events = { publish: vi.fn() };
     const svc = new ReconcilePendingIntentsService({ providerFor: async () => provider as any, intentRepo: intentRepo as any, events: events as any, staleAfterMs: 600000, batchSize: 50 });
     const out = await svc.run();
     expect(out.reconciled).toBe(1);
     expect(intent.status).toBe('CAPTURED');
     expect(events.publish.mock.calls[0][0].type).toBe('payment.captured');
+    expect(events.publish.mock.calls[0][0].idempotencyKey).toBe('capture:pi_1');
+  });
+
+  it('cancels intents stuck in PROCESSING past the expiry before polling', async () => {
+    const intentRepo = { cancelStaleProcessing: vi.fn(async () => 2), findStaleProcessing: vi.fn(async () => []) };
+    const svc = new ReconcilePendingIntentsService({ providerFor: vi.fn() as any, intentRepo: intentRepo as any, events: { publish: vi.fn() } as any, staleAfterMs: 600000, batchSize: 50, expireAfterMs: 24 * 3600_000 });
+    const out = await svc.run();
+    expect(intentRepo.cancelStaleProcessing).toHaveBeenCalledOnce();
+    expect(out.expired).toBe(2);
   });
 });
 

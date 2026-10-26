@@ -1,4 +1,6 @@
 ---
+import { WHITE_LABEL } from '@/lib/dashboard/white-label';
+
 const year = new Date().getUTCFullYear();
 const commit = typeof __AUTONNEL_COMMIT__ === 'string' ? __AUTONNEL_COMMIT__ : '';
 ---
@@ -12,6 +14,6 @@ const commit = typeof __AUTONNEL_COMMIT__ === 'string' ? __AUTONNEL_COMMIT__ : '
     {commit && (
       <span class="font-ds-mono text-ds-muted/80" title={`Deployed commit ${commit}`}>{commit}</span>
     )}
-    <span>&copy; {year} Autonnel &middot; Apache-2.0 licensed</span>
+    {!WHITE_LABEL && <span>&copy; {year} Autonnel &middot; Apache-2.0 licensed</span>}
   </div>
 </footer>

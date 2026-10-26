@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { TicketCheck } from 'lucide-react';
-import { useTranslation } from '../LanguageContext';
+import { useLanguage, usePageCurrency, useTranslation } from '../LanguageContext';
+import { couponErrorMessage } from '../checkout-messages';
+import { formatMoney } from '@/lib/i18n/format-money';
 import { scaledFontSize } from '../TextField';
 import { apiCall } from '@/lib/api/client';
 
@@ -50,10 +52,26 @@ function currentSubtotal(): number {
   return (window as any).__CHECKOUT_STATE__?.total || 0;
 }
 
-function discountBadge(coupon: AppliedCoupon | null) {
+const DEFAULT_CURRENCY = 'USD';
+
+function discountBadge(coupon: AppliedCoupon | null, currency: string, language: string) {
   if (!coupon) return null;
   if (coupon.discountType === 'PERCENTAGE') return `${Number(coupon.discountValue)}%`;
-  return coupon.discountValue ? `$${Number(coupon.discountValue)}` : null;
+  return coupon.discountValue ? formatMoney(Number(coupon.discountValue), currency || DEFAULT_CURRENCY, language) : null;
+}
+
+function useCartCurrency(pageCurrency: string): string {
+  const [cartCurrency, setCartCurrency] = useState('');
+  useEffect(() => {
+    const onSelected = (event: Event) => {
+      const next = (event as CustomEvent).detail?.currency;
+      if (typeof next === 'string' && next) setCartCurrency(next);
+    };
+    window.addEventListener('autonnel:productsSelected', onSelected);
+    window.dispatchEvent(new CustomEvent('autonnel:requestProductSelection'));
+    return () => window.removeEventListener('autonnel:productsSelected', onSelected);
+  }, []);
+  return cartCurrency || pageCurrency;
 }
 
 function publishAppliedCoupon(coupon: AppliedCoupon) {
@@ -64,7 +82,8 @@ function publishRemovedCoupon() {
   window.dispatchEvent(new CustomEvent(COUPON_EVENTS.removed));
 }
 
-function useCouponController(invalidMessage: string, failureMessage: string) {
+function useCouponController(invalidMessage: string, failureMessage: string, language: string) {
+  const currency = usePageCurrency();
   const [code, setCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
   const [error, setError] = useState('');
@@ -115,11 +134,11 @@ function useCouponController(invalidMessage: string, failureMessage: string) {
       }
 
       const data = await apiCall('GET /api/shop/coupon', null, {
-        query: { code: couponCode, subtotal: currentSubtotal() },
+        query: { code: couponCode, subtotal: currentSubtotal(), currency: currency || undefined },
       });
 
       if (!data.valid) {
-        setError(data.error || invalidMessage);
+        setError(couponErrorMessage(language, data) || invalidMessage);
         return;
       }
 
@@ -174,6 +193,7 @@ function panelNotchStyle(backgroundColor: string, discountText: string | null, e
 }
 
 function DiscountPanel({ discountText }: { discountText: string | null }) {
+  const t = useTranslation();
   return (
     <div style={{
       background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
@@ -193,7 +213,7 @@ function DiscountPanel({ discountText }: { discountText: string | null }) {
             {discountText}
           </div>
           <div style={{ fontSize: scaledFontSize(10), fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', opacity: 0.9, marginTop: 2 }}>
-            OFF
+            {t('coupon.off')}
           </div>
         </>
       ) : (
@@ -214,6 +234,7 @@ function AppliedCouponView({
   backgroundColor: string;
   onRemove: () => void;
 }) {
+  const t = useTranslation();
   return (
     <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', boxShadow: '0 2px 12px rgba(22, 163, 74, 0.15)', position: 'relative' }}>
       <DiscountPanel discountText={discountText} />
@@ -223,7 +244,7 @@ function AppliedCouponView({
       <div style={{ flex: 1, background: '#f0fdf4', borderLeft: '2px dashed #bbf7d0', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: scaledFontSize(11), color: '#6b7280', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>
-            Coupon Applied
+            {t('coupon.applied')}
           </div>
           <div style={{ fontSize: scaledFontSize(16), fontWeight: 800, color: '#15803d', letterSpacing: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {coupon.code}
@@ -233,9 +254,9 @@ function AppliedCouponView({
           type="button"
           onClick={onRemove}
           style={{ background: 'rgba(22, 163, 74, 0.1)', border: '1px solid rgba(22, 163, 74, 0.2)', color: '#16a34a', cursor: 'pointer', fontSize: scaledFontSize(12), padding: '4px 10px', borderRadius: 4, fontWeight: 500, lineHeight: 1.4, flexShrink: 0, transition: 'background 0.2s' }}
-          title="Remove coupon"
+          title={t('coupon.removeTitle')}
         >
-          Remove
+          {t('coupon.remove')}
         </button>
       </div>
     </div>
@@ -307,10 +328,14 @@ export function CouponField({
   buttonTextColor = '#333333',
 }: CouponFieldProps & { id?: string; puck?: any }) {
   const t = useTranslation();
+  const language = useLanguage();
   const coupon = useCouponController(
     t('orderSummary.invalidCoupon'),
     t('orderSummary.couponFailed'),
+    language,
   );
+  const pageCurrency = usePageCurrency();
+  const cartCurrency = useCartCurrency(pageCurrency);
 
   useEffect(() => {
     const urlCoupon = new URLSearchParams(window.location.search).get('coupon');
@@ -319,7 +344,7 @@ export function CouponField({
     }
   }, []);
 
-  const discountText = discountBadge(coupon.appliedCoupon);
+  const discountText = discountBadge(coupon.appliedCoupon, cartCurrency, language);
 
   return (
     <div className="autonnel-coupon-input" style={couponShellStyle(backgroundColor)}>

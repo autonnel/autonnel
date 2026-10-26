@@ -20,7 +20,13 @@ const SIZE: Record<NonNullable<ButtonProps['size']>, string> = {
 };
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'default', size = 'md', leftIcon, rightIcon, asChild, className, children, ...rest }, ref) => {
+  (
+    // type defaults to 'button', not the HTML native default of 'submit': every existing caller
+    // that wants submit behavior already sets type="submit" explicitly, so a bare <Button> inside
+    // a <form> (e.g. a toolbar action) must never submit that form implicitly.
+    { variant = 'default', size = 'md', leftIcon, rightIcon, asChild, className, children, type = 'button', ...rest },
+    ref,
+  ) => {
     const cls = [
       'inline-flex items-center justify-center font-medium rounded-[7px] transition-colors',
       'disabled:opacity-50 disabled:pointer-events-none',
@@ -45,7 +51,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     }
 
     return (
-      <button ref={ref} className={cls} {...rest}>
+      <button ref={ref} type={type} className={cls} {...rest}>
         {leftIcon}
         {children}
         {rightIcon}

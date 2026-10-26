@@ -1,0 +1,33 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import AdsAppsPanel from '@/components/settings/AdsAppsPanel';
+import { buildPayload } from '@/pages/api/settings/ads';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const [hasSettings, canAds] = await Promise.all([
+  userHasFeature(auth.user.id, FEATURES.SETTINGS),
+  userHasFeature(auth.user.id, FEATURES.SETTINGS_ADS),
+]);
+
+if (!hasSettings && !canAds) {
+  return Astro.redirect('/');
+}
+
+const initial = await buildPayload();
+---
+
+<DashboardLayout title="Ads" activeNav="settings.ads">
+  <div class="flex flex-col gap-6">
+    <p class="text-[12.5px] text-ds-muted max-w-[720px]">
+      Register OAuth apps for the ad platforms you use, then connect an ad account per platform.
+      Client secrets and developer tokens are never sent back to the browser.
+    </p>
+    <AdsAppsPanel client:load initial={initial} />
+  </div>
+</DashboardLayout>

@@ -6,7 +6,7 @@ import {
 import type { PspSlug } from '../domain/value-objects';
 import { ProviderSelectionPolicy } from '../domain/provider-selection-policy';
 import { PaymentEventType } from '../domain/events';
-import type { PaymentProviderPort, PaymentIntentRepositoryPort, TenantConfigPort } from './ports/outbound';
+import type { PaymentProviderPort, PaymentIntentRepositoryPort, TenantConfigPort, PaymentRequestContext } from './ports/outbound';
 import type { DomainEventPublisherPort } from '../../shared-kernel/event-envelope';
 import { createLogger } from '../../../lib/logger';
 
@@ -27,6 +27,7 @@ export interface CreatePaymentIntentInput {
   provider?: PspSlug;
   // Opaque checkout-time blob; carried onto the intent for later contexts.
   checkoutSnapshot?: unknown;
+  context?: PaymentRequestContext;
 }
 
 export class CreatePaymentIntentService {
@@ -54,23 +55,36 @@ export class CreatePaymentIntentService {
       checkoutSnapshot: input.checkoutSnapshot,
     });
 
-    const created = await provider.createIntent({
-      amountMinor: input.amount.amountMinor,
-      currencyCode: input.amount.currencyCode,
-      captureMethod: input.captureMethod,
-      idempotencyKey: `create:${input.saleRef.value}`,
-      saleRef: input.saleRef.value,
-    });
+    let created;
+    try {
+      created = await provider.createIntent({
+        amountMinor: input.amount.amountMinor,
+        currencyCode: input.amount.currencyCode,
+        captureMethod: input.captureMethod,
+        idempotencyKey: `create:${input.saleRef.value}`,
+        saleRef: input.saleRef.value,
+        context: input.context,
+      });
+    } catch (err) {
+      logger.error('Payment intent creation failed', {
+        provider: slug,
+        saleRef: input.saleRef.value,
+        currencyCode: input.amount.currencyCode,
+        amountMinor: input.amount.amountMinor,
+        error: err,
+      });
+      throw err;
+    }
 
     intent.bindProvider(ProviderRef.of(slug, created.providerRef.providerIntentId));
+    // Hosted-page payments are in flight once the session exists; PROCESSING lets the reconcile cron finish them.
+    if (created.clientHandle.kind === 'redirect_url') intent.markProcessing();
     if (created.vaultCustomerId) intent.setStripeVault({ customerId: created.vaultCustomerId });
     await this.deps.intentRepo.save(intent);
     await this.deps.events.publish({ type: PaymentEventType.PaymentIntentCreated, saleRef: input.saleRef.value, payload: { intentId: intent.id, provider: slug } } as any);
 
     logger.info('Payment intent created', { intentId: intent.id, provider: slug });
-    const handle = created.clientHandle.kind === 'client_secret'
-      ? ClientHandle.stripeClientSecret(created.clientHandle.value)
-      : ClientHandle.paypalApprovalUrl(created.clientHandle.value);
+    const handle = ClientHandle.of(slug, created.clientHandle.kind, created.clientHandle.value);
     return { intentId: intent.id, clientHandle: handle, providerIntentId: created.providerRef.providerIntentId };
   }
 }

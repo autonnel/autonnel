@@ -12,6 +12,7 @@ interface ProductSelectionModalProps {
   selectedItems: SelectedItem[];
   initialCurrency?: string;
   initialRegionId?: string;
+  pageCurrency?: string;
   onSelect: (data: ProductSelectionData) => void;
 }
 
@@ -21,9 +22,10 @@ export function ProductSelectionModal({
   selectedItems,
   initialCurrency,
   initialRegionId,
+  pageCurrency,
   onSelect,
 }: ProductSelectionModalProps) {
-  const h = useProductSelection({ isOpen, selectedItems, initialCurrency, initialRegionId, onSelect, onClose });
+  const h = useProductSelection({ isOpen, selectedItems, initialCurrency, initialRegionId, pageCurrency, onSelect, onClose });
   const { scrollRef, sentinelRef } = useInfiniteProductScroll(isOpen, h.loadMore);
 
   if (!isOpen) return null;

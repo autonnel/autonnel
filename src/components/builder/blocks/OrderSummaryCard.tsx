@@ -79,6 +79,7 @@ export function OrderSummaryCard({
         <CouponSection
           coupon={coupon.appliedCoupon}
           backgroundColor={backgroundColor}
+          currency={currency}
           borderColor={borderColor}
           code={coupon.couponCode}
           setCode={coupon.setCouponCode}

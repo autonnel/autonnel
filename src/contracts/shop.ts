@@ -14,6 +14,7 @@ export interface ShopVariantDto {
   price: number;
   comparePrice?: number;
   thumbnail?: string;
+  priceCurrency?: string;
 }
 
 export interface ShopProductDto {
@@ -24,6 +25,7 @@ export interface ShopProductDto {
   price: number;
   comparePrice: number | null;
   currency: string;
+  priceCurrency?: string;
   variants: ShopVariantDto[];
 }
 
@@ -66,6 +68,8 @@ export interface ShopCouponValidDto {
 export interface ShopCouponInvalidDto {
   valid: false;
   error: string;
+  // The coupon minimum in the cart currency, when that is why the coupon was rejected.
+  minOrder?: { amountMinor: number; currencyCode: string };
 }
 
 export type ShopCouponDto = ShopCouponValidDto | ShopCouponInvalidDto;
@@ -123,11 +127,13 @@ export interface ShopUpsellInput {
   upsellIndex?: number;
   funnelId?: string;
   pageId?: string;
+  cancelTo?: string;
 }
 
 export interface ShopUpsellDto {
   success: boolean;
-  action?: "accepted" | "declined";
+  action?: "accepted" | "declined" | "redirect";
+  redirectUrl?: string;
   order?: { id: string; orderNumber: string; total: number; currency: string; items: unknown };
   addedItem?: Record<string, unknown>;
   nextStepUrl?: string;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { scaledFontSize } from '../../TextField';
 import { formatPrice } from '../ProductSelectionModal';
+import { useLanguage } from '../../LanguageContext';
 import { PALETTE, type MoneyContext, type SelectedProduct, type Translate } from './types';
 
 const lineRowStyle = (showDivider: boolean, borderColor: string): React.CSSProperties => ({
@@ -43,6 +44,7 @@ function ProductLine({
   money: MoneyContext;
   t: Translate;
 }) {
+  const language = useLanguage();
   const heading = product.productName || product.name;
   const isFree = product.price <= 0;
   const inkColor = money.textColor ?? PALETTE.ink;
@@ -60,7 +62,7 @@ function ProductLine({
           {product.quantity > 1 ? (
             <p style={{ fontSize: scaledFontSize(13), color: mutedColor }}>
               {t('orderSummary.qty')} {product.quantity} ×{' '}
-              {formatPrice(product.price / product.quantity, money.currency)}
+              {formatPrice(product.price / product.quantity, money.currency, language)}
             </p>
           ) : null}
         </div>
@@ -74,7 +76,7 @@ function ProductLine({
           marginLeft: 12,
         }}
       >
-        {isFree ? 'FREE' : formatPrice(product.price, money.currency)}
+        {isFree ? 'FREE' : formatPrice(product.price, money.currency, language)}
       </span>
     </div>
   );

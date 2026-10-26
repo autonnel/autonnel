@@ -25,7 +25,10 @@ export class PostmarkEmailAdapter implements MessageDeliveryProviderPort {
         Headers: Object.entries(input.headers).map(([Name, Value]) => ({ Name, Value })),
       }),
     });
-    if (!res.ok) throw httpError(`postmark send failed: ${res.status}`, res.status);
+    if (!res.ok) {
+      const detail = ((await res.json().catch(() => null)) as { Message?: string } | null)?.Message ?? '';
+      throw httpError(`postmark send failed: ${res.status} ${detail}`.trim(), res.status);
+    }
     const json = (await res.json()) as { MessageID: string; ErrorCode: number; Message?: string };
     if (json.ErrorCode !== 0) throw httpError(`postmark error ${json.ErrorCode}: ${json.Message}`, 422);
     return { providerMessageId: json.MessageID };

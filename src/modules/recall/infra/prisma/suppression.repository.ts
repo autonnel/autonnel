@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { getCurrentTenantId } from '../../../../lib/tenant/context';
 import { SuppressionEntry } from '../../domain/suppression';
 import type { SuppressionRepository } from '../../application/ports';
 import type { SuppressionScopeValue } from '../../domain/value-objects';
@@ -31,7 +32,7 @@ export class PrismaSuppressionRepository implements SuppressionRepository {
 
   async upsert(entry: SuppressionEntry): Promise<SuppressionEntry> {
     const row = await (this.prisma as any).recallSuppression.upsert({
-      where: { tenantId_scope_subjectKey: { scope: entry.scope, subjectKey: entry.subjectKey } } as any,
+      where: { tenantId_scope_subjectKey: { tenantId: getCurrentTenantId(), scope: entry.scope, subjectKey: entry.subjectKey } },
       create: { scope: entry.scope, subjectKey: entry.subjectKey, reason: entry.reason, source: entry.source, expiresAt: entry.expiresAt },
       update: { reason: entry.reason, source: entry.source, expiresAt: entry.expiresAt },
     });

@@ -1,4 +1,4 @@
-import { FunnelSession } from '../domain/funnel-session';
+import { FunnelSession, type SessionMarket } from '../domain/funnel-session';
 import type { FunnelSessionStorePort } from '../application/ports/outbound';
 import { CookieSigner } from './cookie-signer';
 import { serializeSession, deserializeSession, type SerializedSession } from './session-serializer';
@@ -13,6 +13,7 @@ export interface EdgeKvSessionDeps {
   kv: KvLike;
   tenantId: string;
   cookieSecret: string;
+  fallbackMarket: SessionMarket;
 }
 
 export class EdgeKvSessionAdapter implements FunnelSessionStorePort {
@@ -28,7 +29,7 @@ export class EdgeKvSessionAdapter implements FunnelSessionStorePort {
   async load(sessionId: string): Promise<FunnelSession | null> {
     const raw = await this.deps.kv.get(this.key(sessionId));
     if (!raw) return null;
-    return deserializeSession(JSON.parse(raw) as SerializedSession);
+    return deserializeSession(JSON.parse(raw) as SerializedSession, this.deps.fallbackMarket);
   }
 
   async store(session: FunnelSession, ttlSeconds: number): Promise<void> {

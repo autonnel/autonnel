@@ -7,6 +7,7 @@ interface ConnectionDelegate {
   findFirst(args: { where: Record<string, unknown>; include?: Record<string, unknown> }): Promise<any | null>;
   findMany(args?: unknown): Promise<any[]>;
   upsert(args: unknown): Promise<unknown>;
+  updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<unknown>;
 }
 
 interface DestinationDelegate {
@@ -101,5 +102,23 @@ export class PrismaConnectionRepository implements ConnectionRepositoryPort {
         });
       }
     }
+  }
+
+  async saveDiscoveredMeta(input: {
+    platform: PlatformRef;
+    externalAccountId: string;
+    currency: string | null;
+    timezone: string | null;
+  }): Promise<void> {
+    const data: Record<string, string> = {};
+    if (input.currency) data.reportingCurrency = input.currency;
+    if (input.timezone) data.reportingTimezone = input.timezone;
+    // Omitting an absent field (rather than writing null) leaves whatever a prior sync already
+    // resolved untouched -- see the port doc comment.
+    if (Object.keys(data).length === 0) return;
+    await this.connDelegate.updateMany({
+      where: { platform: input.platform, externalAccountId: input.externalAccountId },
+      data,
+    });
   }
 }

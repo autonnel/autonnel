@@ -10,7 +10,10 @@ import { getPaymentProviderEntryWithCredentials } from '@/lib/config/payment';
 import HtmlEditorPageLayout from '@/layouts/HtmlEditorPageLayout.astro';
 import Tracking from '@/components/storefront/Tracking.astro';
 import { PreviewRenderer } from '@/components/builder/PreviewRenderer';
+import { resolvePageLanguage } from '@/lib/i18n/format-money';
 import { migratePuckData } from '@/components/builder/migrate-keys';
+import { resolvePreselectedItems } from '@/composition/storefront-preselection';
+import { VARIANT_QUERY_PARAM } from '@/lib/storefront/variant-params';
 
 const auth = await checkAuth(Astro);
 if (!auth.authenticated || !auth.user) {
@@ -74,6 +77,7 @@ const pvFaviconHtml = pvFaviconParts.join('\n  ');
 
 const { stepUrl: funnelCtaUrl } = await getFunnelStepUrlForPageInFunnel(page.id, funnelIdFromQuery);
 const resolvedPuckData = resolveFunnelCtaLinksInPuckData(puckData, funnelCtaUrl);
+const pageLanguage = resolvePageLanguage(resolvedPuckData?.root?.props?.language);
 
 const appClientId = process.env.PAYPAL_APP_CLIENT_ID || import.meta.env.PAYPAL_APP_CLIENT_ID || '';
 const paymentConfig: { paypal: any } = { paypal: null };
@@ -125,6 +129,10 @@ if (paymentConfig.paypal && puckData) {
   }
 }
 
+const preselectedItems = page.type === 'CHECKOUT' && !isHtmlEditor
+  ? await resolvePreselectedItems(url.searchParams.get(VARIANT_QUERY_PARAM))
+  : null;
+
 const googleMapsApiKey = import.meta.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
 const paypalIntent = 'capture';
 
@@ -147,9 +155,10 @@ const ssrOrderData = previewOrderId
     pageBodyScripts={pageBodyScripts}
     showDraftBanner={true}
     draftBannerText="Draft Preview Mode"
+    noTrack={true}
   />
 ) : (
-  <html lang="en">
+  <html lang={pageLanguage}>
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -186,6 +195,11 @@ const ssrOrderData = previewOrderId
           window.__AUTONNEL_SITE_NAME__ = ${JSON.stringify(tenantName)};
         `}
       />
+      <script is:inline>
+        // Draft preview is an operator looking at their own page. Counting it as
+        // a visit pollutes the very panels they opened the page to check.
+        window.__AUTONNEL_NO_TRACK__ = true;
+      </script>
       <Tracking />
       <script
         is:inline
@@ -200,6 +214,17 @@ const ssrOrderData = previewOrderId
           window.__GOOGLE_MAPS_API_KEY__ = ${JSON.stringify(googleMapsApiKey)};
         `}
       />
+      {preselectedItems && (
+        <script is:inline define:vars={{ preselectedItemsValue: preselectedItems }}>
+          window.__AUTONNEL_PRESELECTED_ITEMS__ = preselectedItemsValue;
+        </script>
+      )}
+      {preselectedItems && (
+        <script>
+          import { bindPreselection } from '../../scripts/checkout-preselection';
+          bindPreselection();
+        </script>
+      )}
       {paymentConfig.paypal?.clientId && (
         <script
           is:inline

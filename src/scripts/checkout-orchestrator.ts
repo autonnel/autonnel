@@ -1,24 +1,14 @@
-interface CheckoutState {
-  customerInfo: CustomerInfo | null;
-  shippingAddress: ShippingAddress | null;
-  currentOrderId: string | null;
-}
-
-interface CustomerInfo {
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone?: string;
-}
-
-interface ShippingAddress {
-  address1: string;
-  address2?: string;
-  city: string;
-  state?: string;
-  postalCode: string;
-  country: string;
-}
+import { withPropagatedParams } from '@/lib/analytics/link-params';
+import { translateCheckoutMessage } from '@/components/builder/checkout-messages';
+import { t } from '@/components/builder/translations';
+import { bindPreselection } from './checkout-preselection';
+import {
+  buyerFromState,
+  readAddressFromForm,
+  readCustomerFromForm,
+  type BuyerBody,
+  type CheckoutState,
+} from './checkout-buyer';
 
 interface CartLine {
   productId: string;
@@ -27,20 +17,6 @@ interface CartLine {
   priceMinor: number;
   currency: string;
   title: string;
-}
-
-interface BuyerBody {
-  fullName?: string;
-  email?: string;
-  phone?: string;
-  address?: {
-    line1: string;
-    line2?: string;
-    city: string;
-    region?: string;
-    countryCode: string;
-    postalCode: string;
-  };
 }
 
 interface EnsuredOrder {
@@ -76,11 +52,15 @@ declare global {
 }
 
 interface CheckoutApi {
-  ensureOrder(buyer?: BuyerBody): Promise<EnsuredOrder | null>;
+  ensureOrder(buyer?: BuyerBody, provider?: string): Promise<EnsuredOrder | null>;
   getState(): CheckoutState;
 }
 
 const ORCHESTRATED_TYPES = new Set(['CHECKOUT', 'UPSELL']);
+
+function pageLanguage(): string {
+  return document.querySelector('.landing-page')?.getAttribute('data-language') || 'en';
+}
 
 function log(message: string, detail?: unknown): void {
   if (detail === undefined) console.log(`[CheckoutOrchestrator] ${message}`);
@@ -114,58 +94,10 @@ function toCartLine(item: SelectedProductDetail, currency: string): CartLine {
   };
 }
 
-function getFormValue(name: string): string {
-  const el = document.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLSelectElement | null;
-  return el ? (el.value || '').trim() : '';
-}
-
-function readCustomerFromForm(): CustomerInfo | null {
-  const email = getFormValue('email');
-  const firstName = getFormValue('firstName');
-  const lastName = getFormValue('lastName');
-  if (!email || !firstName || !lastName) return null;
-  return { email, firstName, lastName, phone: getFormValue('phone') || undefined };
-}
-
-function readAddressFromForm(): ShippingAddress | null {
-  const address1 = getFormValue('address1');
-  const city = getFormValue('city');
-  const postalCode = getFormValue('postalCode');
-  if (!address1 || !city || !postalCode) return null;
-  return {
-    address1,
-    address2: getFormValue('address2') || undefined,
-    city,
-    state: getFormValue('state') || undefined,
-    postalCode,
-    country: getFormValue('country') || 'US',
-  };
-}
-
-function buyerFromState(state: CheckoutState): BuyerBody {
-  const info = state.customerInfo;
-  const addr = state.shippingAddress;
-  const fullName = info ? `${info.firstName} ${info.lastName}`.trim() : '';
-  const buyer: BuyerBody = {
-    fullName: fullName || undefined,
-    email: info?.email,
-    phone: info?.phone,
-  };
-  if (addr) {
-    buyer.address = {
-      line1: addr.address1,
-      line2: addr.address2,
-      city: addr.city,
-      region: addr.state,
-      countryCode: addr.country || 'US',
-      postalCode: addr.postalCode,
-    };
-  }
-  return buyer;
-}
 
 class CheckoutOrchestrator {
   private readonly stepSlug: string;
+  private readonly pageType: string;
   private state: CheckoutState;
   private cart: CartLine[] = [];
   private syncedSignature = '';
@@ -176,10 +108,12 @@ class CheckoutOrchestrator {
   private orderPromiseByProvider: Record<string, Promise<EnsuredOrder | null> | undefined> = {};
   private ensuredByProvider: Record<string, EnsuredOrder> = {};
   private cartError: string | null = null;
+  private cartErrorReason: string | null = null;
   private processingOverlay: HTMLElement | null = null;
 
-  constructor(stepSlug: string) {
+  constructor(stepSlug: string, pageType: string) {
     this.stepSlug = stepSlug;
+    this.pageType = pageType;
     this.state = window.__CHECKOUT_STATE__ ?? { customerInfo: null, shippingAddress: null, currentOrderId: null };
     window.__CHECKOUT_STATE__ = this.state;
   }
@@ -187,7 +121,7 @@ class CheckoutOrchestrator {
   start(): void {
     window.Autonnel = window.Autonnel || {};
     window.Autonnel.checkout = {
-      ensureOrder: (buyer) => this.ensureOrder(buyer),
+      ensureOrder: (buyer, provider) => this.ensureOrder(buyer, provider),
       getState: () => this.state,
     };
 
@@ -202,7 +136,9 @@ class CheckoutOrchestrator {
     window.addEventListener('autonnel:couponApplied', this.onCouponApplied as EventListener);
     window.addEventListener('autonnel:couponRemoved', this.onCouponRemoved as EventListener);
 
-    // Selectors that mounted before us will re-broadcast their current selection.
+    // Server-resolved ?variant= rows seed the cart first; a selector that mounted before us
+    // re-broadcasts on the request below and takes over.
+    bindPreselection(window);
     window.dispatchEvent(new CustomEvent('autonnel:requestProductSelection'));
     log('Started', { stepSlug: this.stepSlug });
   }
@@ -304,6 +240,8 @@ class CheckoutOrchestrator {
   }
 
   private async runSyncOnce(): Promise<void> {
+    // An upsell acts on the session that paid the first order; a fresh session would replace its cookie.
+    if (this.pageType === 'UPSELL') return;
     if (this.cart.length === 0) return;
     const signature = this.cartSignature();
     if (signature === this.syncedSignature) return;
@@ -317,23 +255,41 @@ class CheckoutOrchestrator {
         this.sessionReady = true;
       }
       this.cartError = null;
-      for (const line of this.cart) {
+      this.cartErrorReason = null;
+      // The first line replaces the server cart so a changed selection never accumulates lines.
+      const rejected = new Set<string>();
+      for (const [index, line] of this.cart.entries()) {
         const res = await postJson<{ error?: string; message?: string }>('/api/checkout/cart', {
           variantExternalId: line.variantExternalId,
           quantity: line.quantity,
+          replace: index === 0,
         });
         if (!res.ok) {
-          this.cartError = res.data?.message || res.data?.error || 'This product is not available for purchase.';
+          this.cartErrorReason = res.data?.message || res.data?.error || t('en', 'checkout.productUnavailable');
+          this.cartError = translateCheckoutMessage(pageLanguage(), this.cartErrorReason, 'checkout.productUnavailable');
           warn('Cart add failed', { variant: line.variantExternalId, status: res.status, error: this.cartError });
+          rejected.add(line.variantExternalId);
         }
       }
       this.syncedSignature = signature;
+      if (rejected.size > 0) this.dropRejectedLines(rejected);
     } catch (err) {
       warn('Session sync error', err);
     }
   }
 
-  async ensureOrder(buyer?: BuyerBody, provider: 'STRIPE' | 'PAYPAL' = 'STRIPE'): Promise<EnsuredOrder | null> {
+  // A line the server refused is not in the server cart, so it must not stay on display either.
+  private dropRejectedLines(rejected: Set<string>): void {
+    if (this.cartSignature() !== this.syncedSignature) return;
+    this.cart = this.cart.filter((l) => !rejected.has(l.variantExternalId));
+    window.__AUTONNEL_PRODUCTS__ = this.cart;
+    this.syncedSignature = this.cartSignature();
+    for (const variantId of rejected) {
+      window.dispatchEvent(new CustomEvent('autonnel:cartLineRejected', { detail: { variantId, message: this.cartError } }));
+    }
+  }
+
+  async ensureOrder(buyer?: BuyerBody, provider: string = 'STRIPE'): Promise<EnsuredOrder | null> {
     if (this.ensuredByProvider[provider]) return this.ensuredByProvider[provider];
     if (this.orderPromiseByProvider[provider]) return this.orderPromiseByProvider[provider]!;
 
@@ -341,9 +297,10 @@ class CheckoutOrchestrator {
       this.syncFormIntoState();
       await this.waitForCart(3000);
       if (this.cart.length === 0) {
-        const message = this.cartError || 'Please choose a product before continuing to payment.';
+        const message = this.cartError || t(pageLanguage(), 'checkout.chooseProduct');
+        const reason = this.cartErrorReason || t('en', 'checkout.chooseProduct');
         warn('Submit aborted: empty cart');
-        window.dispatchEvent(new CustomEvent('autonnel:showPaymentError', { detail: { message } }));
+        window.dispatchEvent(new CustomEvent('autonnel:showPaymentError', { detail: { message, reason } }));
         this.orderPromiseByProvider[provider] = undefined;
         return null;
       }
@@ -351,23 +308,30 @@ class CheckoutOrchestrator {
       const resolvedBuyer = buyer ?? buyerFromState(this.state);
       const res = await postJson<{ saleRef?: string; clientHandle?: string; error?: string; message?: string }>(
         '/api/checkout/submit',
-        { buyer: resolvedBuyer, captureMethod: 'automatic', provider },
+        {
+          buyer: resolvedBuyer,
+          captureMethod: 'automatic',
+          provider,
+          locale: document.querySelector('.landing-page')?.getAttribute('data-language') ?? undefined,
+          ...this.returnTargets(),
+        },
       );
       if (!res.ok || !res.data.saleRef) {
-        // `message` first: it carries the actual reason and is what lands in the
-        // payment_error analytics row. `error` alone is an opaque code like
+        // `message` first: it carries the actual reason. `reason` keeps the untranslated text and is
+        // what lands in the payment_error analytics row; `error` alone is an opaque code like
         // "checkout_failed", which makes a live outage indistinguishable from a bad coupon.
+        const reason =
+          this.cartErrorReason || res.data.message || res.data.error || t('en', 'checkout.startFailed');
         const message =
           this.cartError ||
-          res.data.message ||
-          res.data.error ||
-          'We could not start your order. Please check the items and try again.';
+          translateCheckoutMessage(pageLanguage(), res.data.message || res.data.error, 'checkout.startFailed');
         warn('Submit failed', { status: res.status, error: res.data.error, cartError: this.cartError });
-        window.dispatchEvent(new CustomEvent('autonnel:showPaymentError', { detail: { message } }));
+        window.dispatchEvent(new CustomEvent('autonnel:showPaymentError', { detail: { message, reason } }));
         this.orderPromiseByProvider[provider] = undefined;
         return null;
       }
       this.cartError = null;
+      this.cartErrorReason = null;
       const ensured: EnsuredOrder = { orderId: res.data.saleRef, clientHandle: res.data.clientHandle ?? '' };
       this.ensuredByProvider[provider] = ensured;
       this.state.currentOrderId = ensured.orderId;
@@ -379,11 +343,26 @@ class CheckoutOrchestrator {
     return promise;
   }
 
+  // Hosted-page providers bounce the buyer back through the server; these are the same-site paths
+  // to continue to (next funnel step) or to retry from (this page).
+  private returnTargets(): { returnTo?: string; cancelTo: string; pageId?: string; funnelId?: string } {
+    const cancelTo = `${window.location.pathname}${window.location.search}`;
+    const nextRaw = window.__FUNNEL_NEXT_STEP_URL__;
+    let returnTo: string | undefined;
+    if (nextRaw) {
+      const u = new URL(withPropagatedParams(nextRaw), window.location.origin);
+      const trackingId = window.Autonnel?.trackingId;
+      if (trackingId && !u.searchParams.has('trackingId')) u.searchParams.set('trackingId', String(trackingId));
+      if (u.origin === window.location.origin) returnTo = `${u.pathname}${u.search}`;
+    }
+    return { returnTo, cancelTo, pageId: window.__AUTONNEL_PAGE_ID__, funnelId: window.__AUTONNEL_FUNNEL_ID__ ?? undefined };
+  }
+
   // Full-screen "processing" overlay shown after payment authorization while the server captures
   // and materializes the order, until the thank-you redirect. Covers every payment widget uniformly.
   private showProcessing(): void {
     if (this.processingOverlay) { this.processingOverlay.style.display = 'flex'; return; }
-    const text = (window as { __CHECKOUT_PROCESSING_TEXT__?: string }).__CHECKOUT_PROCESSING_TEXT__ || 'Processing your order…';
+    const text = (window as { __CHECKOUT_PROCESSING_TEXT__?: string }).__CHECKOUT_PROCESSING_TEXT__ || t(pageLanguage(), 'checkout.processingOrder');
     const overlay = document.createElement('div');
     overlay.setAttribute('data-autonnel-processing', '');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,0.55);';
@@ -462,7 +441,10 @@ class CheckoutOrchestrator {
         warn('PayPal approve capture failed', { status: res.status, error: res.data.error });
         window.dispatchEvent(
           new CustomEvent('autonnel:showPaymentError', {
-            detail: { message: res.data.error || 'Payment failed. Please try again.' },
+            detail: {
+              message: translateCheckoutMessage(pageLanguage(), res.data.error, 'payment.failedTryAgain'),
+              reason: res.data.error || t('en', 'payment.failedTryAgain'),
+            },
           }),
         );
       }
@@ -492,8 +474,9 @@ class CheckoutOrchestrator {
     } catch {
       // Non-URL target (unexpected) — fall back to the raw value.
     }
-    log('Redirecting after payment', { target });
-    window.location.href = target;
+    const finalTarget = withPropagatedParams(target);
+    log('Redirecting after payment', { target: finalTarget });
+    window.location.href = finalTarget;
   };
 
   private onCouponApplied = (event: CustomEvent): void => {
@@ -516,7 +499,7 @@ function boot(): void {
     warn('Missing page slug; checkout orchestration disabled');
     return;
   }
-  new CheckoutOrchestrator(stepSlug).start();
+  new CheckoutOrchestrator(stepSlug, pageType).start();
 }
 
 boot();

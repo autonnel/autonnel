@@ -1,6 +1,9 @@
 ---
 // The synchronous <script define:vars> block MUST appear in the DOM before Tracking.
 import Tracking from '@/components/storefront/Tracking.astro';
+import DepthMarkerScroll from '@/components/storefront/DepthMarkerScroll.astro';
+import { getSiteNoindex } from '@/lib/config/keys';
+import { NOINDEX_ROBOTS_DIRECTIVE } from '@/lib/seo/robots';
 
 interface Favicon {
   variants?: Record<string, string | undefined>;
@@ -31,6 +34,8 @@ export interface Props {
   showDraftBanner?: boolean;
   draftBannerText?: string;
   includeFontsAndPreconnect?: boolean;
+  noTrack?: boolean;
+  depthMarker?: number | null;
 }
 
 const {
@@ -58,6 +63,8 @@ const {
   showDraftBanner = false,
   draftBannerText = 'Draft Preview Mode - This is the unpublished version of the page',
   includeFontsAndPreconnect = true,
+  noTrack = false,
+  depthMarker = null,
 } = Astro.props;
 
 const v = favicon?.variants;
@@ -87,35 +94,8 @@ const ssrParamsQs = Object.keys(ssrUrlParams).length > 0
   ? '?' + new URLSearchParams(ssrUrlParams).toString()
   : '';
 const ctaWithParams = funnelCtaUrl ? `${funnelCtaUrl}${ssrParamsQs}` : null;
+const noindex = await getSiteNoindex().catch(() => false);
 
-function buildSsrLinkInjectionScript(params: Record<string, string>): string {
-  const entries = Object.entries(params);
-  if (entries.length === 0) return '';
-
-  const paramsJson = JSON.stringify(params).replace(/</g, '\\u003c');
-
-  return `<script>
-(function(){
-  var p=${paramsJson};
-  var qs=Object.keys(p).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(p[k])}).join('&');
-  if(!qs)return;
-  var links=document.querySelectorAll('a[href]');
-  for(var i=0;i<links.length;i++){
-    try{
-      var h=links[i].getAttribute('href');
-      if(!h||h.charAt(0)==='#'||h.indexOf('mailto:')===0||h.indexOf('tel:')===0||h.indexOf('javascript:')===0)continue;
-      var u=new URL(h,location.origin);
-      if(u.origin!==location.origin)continue;
-      var changed=false;
-      for(var k in p){if(!u.searchParams.has(k)){u.searchParams.set(k,p[k]);changed=true;}}
-      if(changed)links[i].setAttribute('href',u.pathname+u.search+u.hash);
-    }catch(e){}
-  }
-})();
-</script>`;
-}
-
-const linkInjectionHtml = buildSsrLinkInjectionScript(ssrUrlParams);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -123,6 +103,7 @@ const linkInjectionHtml = buildSsrLinkInjectionScript(ssrUrlParams);
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{pageTitle}</title>
+  {noindex && <meta name="robots" content={NOINDEX_ROBOTS_DIRECTIVE} />}
   {pageDescription && <meta name="description" content={pageDescription} />}
   {faviconHtml && <Fragment set:html={faviconHtml} />}
   {ogImage && <meta property="og:image" content={ogImage} />}
@@ -160,6 +141,7 @@ const linkInjectionHtml = buildSsrLinkInjectionScript(ssrUrlParams);
     stepIndex,
     ctaWithParams,
     serverGeneratedAnid,
+    ssrUrlParams,
   }}>
     window.__AUTONNEL_TENANT_ID__ = tenantId;
     window.__AUTONNEL_API_BASE__ = '';
@@ -173,16 +155,22 @@ const linkInjectionHtml = buildSsrLinkInjectionScript(ssrUrlParams);
     window.__FUNNEL_NEXT_STEP_URL__ = ctaWithParams || null;
     window.__AUTONNEL_TENANT_NAME__ = tenantName;
     window.__AUTONNEL_SITE_NAME__ = tenantName;
+    window.__AUTONNEL_LINK_PARAMS__ = ssrUrlParams;
     if (serverGeneratedAnid) {
       window.__AUTONNEL_SERVER_ANID__ = serverGeneratedAnid;
     }
   </script>
 
+  {/* Single emission point for both HTML-editor callers (preview and storefront); keeping this here instead of duplicating it per-route is what keeps the flag from drifting. */}
+  <script is:inline define:vars={{ noTrack }}>
+    window.__AUTONNEL_NO_TRACK__ = noTrack;
+  </script>
+  {depthMarker !== null && <DepthMarkerScroll depthMarker={depthMarker} />}
+
   <Tracking />
 
   <Fragment set:html={rawHtmlContent} />
   {pageBodyScripts && <Fragment set:html={pageBodyScripts} />}
-  {linkInjectionHtml && <Fragment set:html={linkInjectionHtml} />}
   {bodyEndScriptsHtml && <Fragment set:html={bodyEndScriptsHtml} />}
 </body>
 </html>

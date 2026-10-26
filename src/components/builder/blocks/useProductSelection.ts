@@ -6,7 +6,9 @@ import type {
   ShopProductSingleDto,
   ShopRegionDto,
 } from '@/contracts/shop';
-import type { SelectedItem, ProductSelectionData } from './product-selection-types';
+import { formatMoney } from '@/lib/i18n/format-money';
+import { usePageCurrency } from '../LanguageContext';
+import { hasPriceIn, type SelectedItem, type ProductSelectionData } from './product-selection-types';
 
 export type Product = ShopProductDto;
 export type Region = ShopRegionDto;
@@ -23,22 +25,13 @@ export interface UseProductSelectionProps {
   selectedItems: SelectedItem[];
   initialCurrency?: string;
   initialRegionId?: string;
+  pageCurrency?: string;
   onSelect: (data: ProductSelectionData) => void;
   onClose: () => void;
 }
 
-export function formatPrice(amount: number, currencyCode?: string): string {
-  const code = currencyCode || DEFAULT_CURRENCY;
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: code,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${code} ${amount.toFixed(2)}`;
-  }
+export function formatPrice(amount: number, currencyCode: string | undefined, language: string): string {
+  return formatMoney(amount, currencyCode || DEFAULT_CURRENCY, language);
 }
 
 function overridesFromItems(items: SelectedItem[]): Map<string, NameOverride> {
@@ -63,6 +56,8 @@ function withDeletedFromSet<T>(source: Set<T>, key: T): Set<T> {
 
 export function useProductSelection(props: UseProductSelectionProps) {
   const { isOpen, selectedItems, initialCurrency, initialRegionId, onSelect, onClose } = props;
+  const contextCurrency = usePageCurrency();
+  const pageCurrency = (props.pageCurrency || contextCurrency).toUpperCase();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -87,9 +82,9 @@ export function useProductSelection(props: UseProductSelectionProps) {
   const [customNames, setCustomNames] = useState<Map<string, NameOverride>>(() => new Map());
 
   const [regions, setRegions] = useState<Region[]>([]);
-  const [selectedRegionId, setSelectedRegionId] = useState(initialRegionId || '');
+  const [selectedRegionId, setSelectedRegionId] = useState(pageCurrency || initialRegionId || '');
   const [regionsLoading, setRegionsLoading] = useState(false);
-  const [currentCurrency, setCurrentCurrency] = useState(initialCurrency || DEFAULT_CURRENCY);
+  const [currentCurrency, setCurrentCurrency] = useState(pageCurrency || initialCurrency || DEFAULT_CURRENCY);
 
   const [pricedProducts, setPricedProducts] = useState<Map<string, Product>>(() => new Map());
   const [pricingProductIds, setPricingProductIds] = useState<Set<string>>(() => new Set());
@@ -127,6 +122,7 @@ export function useProductSelection(props: UseProductSelectionProps) {
         if (stale) return;
         const list = data.regions || [];
         setRegions(list);
+        if (pageCurrency) return;
         const preferred =
           initialRegionId && list.find(r => r.id === initialRegionId);
         if (preferred) {
@@ -269,6 +265,7 @@ export function useProductSelection(props: UseProductSelectionProps) {
         if (prev.some(s => s.id === itemId)) {
           return prev.filter(s => s.id !== itemId);
         }
+        if (!hasPriceIn(variant ?? product, pageCurrency)) return prev;
         const override = customNames.get(itemId);
         const item: SelectedItem = {
           id: itemId,
@@ -279,15 +276,17 @@ export function useProductSelection(props: UseProductSelectionProps) {
           comparePrice: variant?.comparePrice ?? product.comparePrice ?? undefined,
           thumbnail: variant?.thumbnail || product.thumbnail || undefined,
           quantity: 1,
+          currency: variant?.priceCurrency || product.priceCurrency || currentCurrency,
         };
         return [...prev, item];
       });
     },
-    [customNames],
+    [customNames, currentCurrency, pageCurrency],
   );
 
   const handleRegionChange = useCallback(
     (regionId: string) => {
+      if (pageCurrency) return;
       setSelectedRegionId(regionId);
       const region = regions.find(r => r.id === regionId);
       if (region) setCurrentCurrency(region.currencyCode);
@@ -296,7 +295,7 @@ export function useProductSelection(props: UseProductSelectionProps) {
       setPricedProducts(new Map());
       setPricingProductIds(new Set());
     },
-    [regions],
+    [regions, pageCurrency],
   );
 
   const startEditing = useCallback(
@@ -422,6 +421,7 @@ export function useProductSelection(props: UseProductSelectionProps) {
   }, [localSelected, currentCurrency, selectedRegionId, onSelect, onClose]);
 
   return {
+    pageCurrency,
     products,
     filteredProducts,
     loading,

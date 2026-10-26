@@ -3,6 +3,10 @@ main = "./src/cf-worker.ts"
 compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Run next to the database (Hyperdrive) instead of the visitor edge.
+[placement]
+mode = "smart"
+
 # Astro cloudflare adapter outputs client assets here
 [assets]
 directory = "./dist/client"
@@ -19,6 +23,16 @@ binding = "HYPERDRIVE"
 id = "${CF_HYPERDRIVE_CONFIG_ID}"
 # For local dev, wrangler needs a real Postgres URL to emulate Hyperdrive.
 localConnectionString = "${CF_HYPERDRIVE_LOCAL_CONNECTION_STRING}"
+
+# Cloudflare Email Service. Settings → Email Provider → Cloudflare Email (Workers binding) sends through it;
+# the from address must be on a domain onboarded to Email Service.
+[[send_email]]
+name = "EMAIL"
+
+# Workers AI. Uncomment to use Settings → LLM → Cloudflare Workers AI with the "Workers AI binding" transport.
+# Left off by default because `wrangler dev` then needs Cloudflare credentials to start; the REST transport needs no binding.
+# [ai]
+# binding = "AI"
 
 # Cron Triggers — auto-populated by scripts/generate-wrangler.mjs from the
 # cron registry in src/lib/cron/catalog.ts. Do not edit by hand;

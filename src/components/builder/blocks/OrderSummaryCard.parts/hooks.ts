@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiCall } from '@/lib/api/client';
+import { useLanguage, usePageCurrency } from '../../LanguageContext';
+import { couponErrorMessage } from '../../checkout-messages';
 import {
   EVENT,
   SAMPLE_CART,
@@ -10,6 +12,11 @@ import {
   type SelectedProduct,
   type Translate,
 } from './types';
+
+// Selector events carry the variant as `id`; older emitters used `variantId`.
+function lineVariantId(product: SelectedProduct): string | undefined {
+  return (product as SelectedProduct & { id?: string }).id ?? product.variantId;
+}
 
 export function useSelectedProducts() {
   const [products, setProducts] = useState<SelectedProduct[]>([]);
@@ -22,8 +29,14 @@ export function useSelectedProducts() {
       if (detail.currency) setCurrency(detail.currency);
     };
     const listener = onSelected as EventListener;
+    const onRejected = (event: Event) => {
+      const variantId = (event as CustomEvent).detail?.variantId;
+      if (typeof variantId !== 'string') return;
+      setProducts((prev) => prev.filter((p) => lineVariantId(p) !== variantId));
+    };
 
     window.addEventListener(EVENT.productsSelected, listener);
+    window.addEventListener(EVENT.cartLineRejected, onRejected);
 
     if (inTenant()) {
       emit(EVENT.requestSelection);
@@ -31,7 +44,10 @@ export function useSelectedProducts() {
       setProducts(SAMPLE_CART);
     }
 
-    return () => window.removeEventListener(EVENT.productsSelected, listener);
+    return () => {
+      window.removeEventListener(EVENT.productsSelected, listener);
+      window.removeEventListener(EVENT.cartLineRejected, onRejected);
+    };
   }, []);
 
   return { products, currency };
@@ -64,6 +80,8 @@ export function useExternalCouponEvents(
 }
 
 export function useCouponState(subtotal: number, t: Translate) {
+  const currency = usePageCurrency();
+  const language = useLanguage();
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
   const [couponError, setCouponError] = useState('');
@@ -85,7 +103,7 @@ export function useCouponState(subtotal: number, t: Translate) {
       const id = tenantId();
       try {
         if (id) {
-          const data = await apiCall('GET /api/shop/coupon', null, { query: { code, subtotal } });
+          const data = await apiCall('GET /api/shop/coupon', null, { query: { code, subtotal, currency: currency || undefined } });
           if (data.valid) {
             const applied: AppliedCoupon = {
               code: data.code || code,
@@ -98,7 +116,7 @@ export function useCouponState(subtotal: number, t: Translate) {
             setCouponCode('');
             emit(EVENT.couponApplied, applied);
           } else {
-            setCouponError(data.error || t('orderSummary.invalidCoupon'));
+            setCouponError(couponErrorMessage(language, data) || t('orderSummary.invalidCoupon'));
           }
         } else if (code.toLowerCase() === 'save10') {
           setAppliedCoupon({ code, discount: subtotal * 0.1 });
@@ -112,7 +130,7 @@ export function useCouponState(subtotal: number, t: Translate) {
         setApplying(false);
       }
     },
-    [couponCode, subtotal, t],
+    [couponCode, subtotal, currency, language, t],
   );
 
   const removeCoupon = useCallback(() => {

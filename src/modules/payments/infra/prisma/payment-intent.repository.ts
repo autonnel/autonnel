@@ -31,6 +31,8 @@ export class PrismaPaymentIntentRepository implements PaymentIntentRepositoryPor
       stripePaymentMethodId: intent.stripePaymentMethodId ?? null,
       captureDeferred: intent.captureDeferred,
       handoffDeferred: intent.handoffDeferred,
+      // Never written as null: setVaultRef from a concurrent notification must not be clobbered.
+      ...(intent.vaultRef ? { vaultRef: intent.vaultRef } : {}),
     };
     // tenantId auto-injected by the Prisma extension on create/update.
     await this.prisma.paymentIntent.upsert({ where: { id: intent.id }, create: data as never, update: data });
@@ -81,8 +83,35 @@ export class PrismaPaymentIntentRepository implements PaymentIntentRepositoryPor
     });
   }
 
+  async claimCapture(intentId: string): Promise<boolean> {
+    const { count } = await this.prisma.paymentIntent.updateMany({
+      where: { id: intentId, status: { in: ['REQUIRES_PAYMENT', 'PROCESSING'] } },
+      data: { status: 'CAPTURED' },
+    });
+    return count === 1;
+  }
+
+  async releaseCapture(intentId: string): Promise<void> {
+    await this.prisma.paymentIntent.updateMany({
+      where: { id: intentId, status: 'CAPTURED', providerChargeId: null },
+      data: { status: 'PROCESSING' },
+    });
+  }
+
+  async setVaultRef(intentId: string, vaultRef: string): Promise<void> {
+    await this.prisma.paymentIntent.update({ where: { id: intentId }, data: { vaultRef } });
+  }
+
+  async cancelStaleProcessing(olderThan: Date): Promise<number> {
+    const { count } = await this.prisma.paymentIntent.updateMany({
+      where: { status: 'PROCESSING', updatedAt: { lt: olderThan } },
+      data: { status: 'CANCELED' },
+    });
+    return count;
+  }
+
   async findStaleProcessing(olderThan: Date, limit: number): Promise<PaymentIntent[]> {
-    const rows = await this.prisma.paymentIntent.findMany({ where: { status: 'PROCESSING', updatedAt: { lt: olderThan } }, take: limit });
+    const rows = await this.prisma.paymentIntent.findMany({ where: { status: 'PROCESSING', updatedAt: { lt: olderThan } }, orderBy: { updatedAt: 'asc' }, take: limit });
     return rows.map((r: any) => this.map(r)!).filter(Boolean);
   }
 
@@ -118,6 +147,7 @@ export class PrismaPaymentIntentRepository implements PaymentIntentRepositoryPor
       stripePaymentMethodId: row.stripePaymentMethodId ?? undefined,
       captureDeferred: row.captureDeferred ?? false,
       handoffDeferred: row.handoffDeferred ?? false,
+      vaultRef: row.vaultRef ?? undefined,
     });
   }
 }

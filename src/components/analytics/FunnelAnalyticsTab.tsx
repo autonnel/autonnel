@@ -15,7 +15,7 @@ import { PanelError, PanelLoading } from './PanelState';
 import type { DiagnosticsFilters } from './use-diagnostics-query';
 import { Input, dsSelectClass } from '@/components/primitives';
 import type { RevenueMetricsDto } from '@/contracts/analytics-diagnostics';
-import type { StatsResponseDto } from '@/contracts/stats';
+import type { StatsResponseDto, FunnelAdTotalsDto } from '@/contracts/stats';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_TIMEZONE = 'Etc/GMT-8';
@@ -54,6 +54,7 @@ export default function FunnelAnalyticsTab({
   });
 
   const [stats, setStats] = useState<Record<string, number> | null>(null);
+  const [adTotals, setAdTotals] = useState<FunnelAdTotalsDto | null>(null);
   const [metrics, setMetrics] = useState<RevenueMetricsDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +76,7 @@ export default function FunnelAnalyticsTab({
         if (!active) return;
         const entry = (result as StatsResponseDto).data?.find((item) => item.funnelId === funnelId);
         setStats(entry?.stats || createEmptyStats());
+        setAdTotals(entry?.ad ?? null);
         setMetrics(entry?.metrics ?? null);
         setIsLoading(false);
       })
@@ -88,6 +90,7 @@ export default function FunnelAnalyticsTab({
               : 'Failed to fetch statistics data';
         setError(message);
         setStats(null);
+        setAdTotals(null);
         setMetrics(null);
         setIsLoading(false);
       });
@@ -186,7 +189,7 @@ export default function FunnelAnalyticsTab({
           <PanelError message={error} />
         </DsCard>
       )}
-      {!error && stats && <FunnelPyramid stats={stats} />}
+      {!error && stats && <FunnelPyramid stats={stats} ad={adTotals} onsiteTimezone={filters.timezone} />}
 
       <CheckoutFunnelPanel filters={filters} />
 

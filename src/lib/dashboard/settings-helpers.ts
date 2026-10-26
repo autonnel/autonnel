@@ -31,7 +31,7 @@ export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description:
   { id: 'storage',          label: 'Storage',              description: 'S3 / CDN configuration and static domain', group: 'site' },
   { id: 'llm',              label: 'LLM',                  description: 'OpenAI-compatible base URL, API key, and model', group: 'site' },
   { id: 'integrations',     label: 'Integrations',         description: 'Google Maps and Browser Rendering', group: 'site' },
-  { id: 'email',            label: 'Email Provider',       description: 'SMTP or Resend provider',                group: 'communication' },
+  { id: 'email',            label: 'Email Provider',       description: 'SMTP, Resend or Cloudflare Email',       group: 'communication' },
   { id: 'email-templates',  label: 'Email Templates',      description: 'Multi-language transactional templates', group: 'communication' },
   { id: 'recall',           label: 'Recall',               description: 'Abandoned cart recovery',                group: 'communication' },
   { id: 'maintenance',      label: 'Maintenance',          description: 'Block storefront traffic with optional bypass password', group: 'system' },

@@ -31,6 +31,7 @@ export const FEATURES = Object.freeze([
   'SETTINGS_DOMAINS',
   'SETTINGS_CUSTOM_CODE',
   'SETTINGS_COUPON',
+  'SETTINGS_ADS',
   'PERMISSIONS',
 ] as const);
 

@@ -33,7 +33,10 @@ export class ResendEmailAdapter implements MessageDeliveryProviderPort {
         headers: input.headers,
       }),
     });
-    if (!res.ok) throw httpError(`resend send failed: ${res.status}`, res.status);
+    if (!res.ok) {
+      const detail = ((await res.json().catch(() => null)) as { message?: string } | null)?.message ?? '';
+      throw httpError(`resend send failed: ${res.status} ${detail}`.trim(), res.status);
+    }
     const json = (await res.json()) as { id: string };
     return { providerMessageId: json.id };
   }

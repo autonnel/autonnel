@@ -24,6 +24,14 @@
     "./cli": {
       "import": "./dist/cli/index.js"
     },
+    "./cloudflare": {
+      "types": "./dist/integration/cloudflare-preset.d.ts",
+      "import": "./dist/integration/cloudflare-preset.js"
+    },
+    "./node": {
+      "types": "./dist/integration/node-preset.d.ts",
+      "import": "./dist/integration/node-preset.js"
+    },
     "./api": {
       "types": "./dist/lib/api/guard.d.ts",
       "import": "./dist/lib/api/guard.js"
@@ -49,6 +57,7 @@
       "import": "./dist/integration/consumer-identity.js"
     },
     "./cf-worker": "./src/cf-worker.ts",
+    "./plugins": "./src/integration/register-plugins.ts",
     "./pages/*": "./src/pages/*",
     "./components/*": "./src/components/*",
     "./lib/permissions": {
@@ -83,6 +92,7 @@
     "!dist/client",
     "!dist/server",
     "!dist/**/*.map",
+    "public",
     "prisma/schema.prisma",
     "src",
     "!src/**/*.test.ts",
@@ -143,6 +153,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.74",
     "@ai-sdk/openai": "^3.0.54",
+    "@ai-sdk/provider": "^3.0.10",
     "@arco-design/web-react": "^2.66.15",
     "@astrojs/cloudflare": "^13.7.0",
     "@astrojs/node": "^10.1.4",
@@ -172,6 +183,7 @@
     "easy-email-extensions": "^4.16.5",
     "grapesjs": "^0.22.4",
     "grapesjs-blocks-basic": "^1.0.2",
+    "grapesjs-parser-postcss": "1.0.3",
     "grapesjs-preset-webpage": "^1.0.3",
     "ioredis": "^5.9.1",
     "jszip": "^3.10.1",
@@ -190,6 +202,7 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",
     "uuid": "^13.0.0",
+    "workers-ai-provider": "^3.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

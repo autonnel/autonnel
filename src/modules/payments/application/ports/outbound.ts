@@ -1,14 +1,38 @@
 import type { PspSlug, RefundKind } from '../../domain/value-objects';
+import type { ClientHandleKind } from '../../domain/value-objects';
 import type { Money } from '../../../shared-kernel/money';
 
-export interface ProviderCreateIntentInput { amountMinor: number; currencyCode: string; captureMethod: 'automatic' | 'manual'; idempotencyKey: string; saleRef: string; vaultForReuse?: boolean; }
-export interface ProviderCreateIntentResult { providerRef: { provider: PspSlug; providerIntentId: string }; clientHandle: { provider: PspSlug; kind: 'client_secret' | 'approval_url'; value: string }; vaultCustomerId?: string; }
-export interface ProviderOffSessionChargeInput { customerId?: string; paymentMethodId: string; amountMinor: number; currencyCode: string; idempotencyKey: string; saleRef: string; }
+export interface PaymentRequestAddress { line1?: string; line2?: string; city?: string; region?: string; countryCode?: string; postalCode?: string }
+export interface PaymentRequestLine { sku: string; title: string; quantity: number; unitPriceMinor: number; currencyCode: string }
+// Buyer, cart and request facts for providers that need them up front (hosted pages, MIT charges).
+export interface PaymentRequestContext {
+  buyer: { email?: string; phone?: string; fullName?: string; shopperId?: string; address?: PaymentRequestAddress };
+  lines: PaymentRequestLine[];
+  sessionId?: string;
+  returnUrl?: string;
+  notifyUrl?: string;
+  clientIp?: string;
+  userAgent?: string;
+  locale?: string | null;
+}
+
+export interface ProviderCreateIntentInput { amountMinor: number; currencyCode: string; captureMethod: 'automatic' | 'manual'; idempotencyKey: string; saleRef: string; vaultForReuse?: boolean; context?: PaymentRequestContext; }
+export interface ProviderCreateIntentResult { providerRef: { provider: PspSlug; providerIntentId: string }; clientHandle: { provider: PspSlug; kind: ClientHandleKind; value: string }; vaultCustomerId?: string; }
+export interface ProviderOffSessionChargeInput { customerId?: string; paymentMethodId: string; amountMinor: number; currencyCode: string; idempotencyKey: string; saleRef: string; context?: PaymentRequestContext; }
 export interface ProviderPayer { email?: string; name?: string; address?: { line1?: string; line2?: string; city?: string; region?: string; countryCode?: string; postalCode?: string } }
-export interface ProviderCaptureResult { providerChargeId: string; capturedAmountMinor: number; currencyCode: string; feeMinor?: number; cardBrand?: string; cardNetwork?: string; last4?: string; capturedAt: string; payer?: ProviderPayer; }
+export interface ProviderCaptureResult { providerChargeId: string; capturedAmountMinor: number; currencyCode: string; feeMinor?: number; cardBrand?: string; cardNetwork?: string; last4?: string; capturedAt: string; payer?: ProviderPayer; vaultRef?: string; }
 export interface ProviderConfirmResult { status: 'CAPTURED' | 'AUTHORIZED' | 'REQUIRES_ACTION' | 'FAILED'; clientSecret?: string; capture?: ProviderCaptureResult; error?: { code?: string; message?: string }; }
 export interface ProviderRefundResult { providerRefundRef: string; }
-export interface ParsedWebhook { provider: PspSlug; providerEventId: string; type: string; providerIntentId?: string; providerChargeId?: string; capturedAmountMinor?: number; currencyCode?: string; cardBrand?: string; last4?: string; refundedAmountMinor?: number; }
+export interface ParsedWebhook {
+  provider: PspSlug; providerEventId: string; type: string; providerIntentId?: string; providerChargeId?: string;
+  capturedAmountMinor?: number; currencyCode?: string; cardBrand?: string; last4?: string; refundedAmountMinor?: number;
+  // Redirect-style providers: the payment outcome carried by the notification.
+  status?: 'CAPTURED' | 'FAILED' | 'PENDING';
+  capture?: ProviderCaptureResult;
+  vaultRef?: string;
+}
+export interface IntentAmountHint { amountMinor: number; currencyCode: string }
+export interface WebhookAck { status: number; body: string; contentType?: string }
 
 export interface PaymentProviderPort {
   readonly slug: PspSlug;
@@ -21,7 +45,10 @@ export interface PaymentProviderPort {
   patchOrderAmount?(orderId: string, currencyCode: string, totalMinor: number): Promise<void>;
   capture(providerIntentId: string, idempotencyKey: string): Promise<ProviderCaptureResult>;
   cancel(providerIntentId: string, idempotencyKey: string): Promise<{ status: string }>;
-  getIntent(providerIntentId: string): Promise<{ status: string; capture?: ProviderCaptureResult }>;
+  // `hint` lets providers whose status query omits the amount report the intent's own amount.
+  getIntent(providerIntentId: string, hint?: IntentAmountHint): Promise<{ status: string; capture?: ProviderCaptureResult }>;
+  // Response body the provider expects after a verified notification; defaults to 200 "OK".
+  webhookAck?(): WebhookAck;
   refund(input: { providerChargeId: string; amountMinor: number; currencyCode: string; idempotencyKey: string }): Promise<ProviderRefundResult>;
   verifyWebhookSignature(rawBody: string, headers: Record<string, string>, signingSecret: string): Promise<boolean>;
   parseWebhook(rawBody: string): ParsedWebhook;
@@ -41,6 +68,13 @@ export interface PaymentIntentRepositoryPort {
   // Abandoned Stripe merged-upsell sessions: CAPTURED + handoffDeferred, untouched past a cutoff.
   findHandoffDeferredOlderThan(olderThan: Date, limit: number): Promise<PaymentIntent[]>;
   updateCheckoutSnapshotBySaleRef(saleRef: string, snapshot: unknown): Promise<void>;
+  // Atomically moves REQUIRES_PAYMENT / PROCESSING to CAPTURED; true only for the single winner.
+  claimCapture(intentId: string): Promise<boolean>;
+  // Undo a claim whose charge details were never persisted so the reconcile cron can retry.
+  releaseCapture(intentId: string): Promise<void>;
+  setVaultRef(intentId: string, vaultRef: string): Promise<void>;
+  // PROCESSING intents untouched since `olderThan` become CANCELED; returns how many.
+  cancelStaleProcessing(olderThan: Date): Promise<number>;
 }
 
 export interface ReserveRefundInput {

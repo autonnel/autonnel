@@ -8,6 +8,7 @@ import type {
   ToolCallEvent,
 } from '@/components/ai-panel/types';
 import { assignAids, stripAidsFromEditor } from '@/components/ai-panel/aid';
+import { replaceComponents } from '@/components/grapesjs/replace-components';
 
 const MUTATING = new Set(['rewriteText', 'replaceSection', 'appendCss', 'setImagePrompt']);
 
@@ -131,7 +132,7 @@ export function useGrapesAdapter(
         const editor = editorRef.current;
         if (!editor) return;
         if (typeof payload.html === 'string') {
-          editor.setComponents(payload.html);
+          replaceComponents(editor, payload.html);
         }
         if (typeof payload.css === 'string') {
           editor.setStyle(payload.css);

@@ -1,5 +1,6 @@
 import { convertDateRangeToUtc } from '@/lib/utils';
 import { DEFAULT_TIMEZONE } from '@/lib/constants/timezone';
+import { DB_TO_FUNNEL_PAGE_TYPE } from '@/components/funnel/types';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'muted' | 'default';
 
@@ -101,6 +102,25 @@ export function resolveAnalyticsWindow(input: {
   };
 }
 
+// Used by the funnel-level Ad Performance panel so it shares the exact same window as
+// FunnelAnalyticsTab's own range picker (startDate/endDate query params) instead of a window
+// computed independently of it -- a hardcoded fixed window would silently disagree with every
+// other number on the page whenever the picker's range changes. Falls back to a 7-day window (not
+// resolveAnalyticsWindow's own 24h default, too tight for ad spend review) only when the tab has
+// not set an explicit range yet.
+export function resolveFunnelAdWindow(input: {
+  startDate?: string | null;
+  endDate?: string | null;
+  timezone?: string | null;
+}): AnalyticsWindow {
+  return resolveAnalyticsWindow({
+    start: input.startDate || null,
+    end: input.endDate || null,
+    range: '7d',
+    tz: input.timezone,
+  });
+}
+
 export interface AnalyticsKpi {
   visits24h: number;
   visitsPrev24h: number;
@@ -173,6 +193,13 @@ export function conversionRate(orders: number, visits: number): number {
 
 export interface FunnelStepInput {
   visits: Array<{ pageType: string | null; eventType?: string | null }>;
+  customEvents?: Array<{ pageType: string | null; name: string; visitors: number }>;
+}
+
+export interface FunnelStepEventRow {
+  name: string;
+  visitors: number;
+  sharePct: number;
 }
 
 export interface FunnelStepRow {
@@ -180,7 +207,10 @@ export interface FunnelStepRow {
   label: string;
   count: number;
   dropRate: number;
+  events: FunnelStepEventRow[];
 }
+
+export const MAX_EVENTS_PER_STEP = 8;
 
 const STEP_DEFS: Array<{ key: string; label: string; matchPageType: string[]; matchEventType?: string[] }> = [
   { key: 'lp1',       label: 'LP1 (Landing)',  matchPageType: ['LANDING', 'LP1', 'lp1', 'landing'] },
@@ -190,6 +220,17 @@ const STEP_DEFS: Array<{ key: string; label: string; matchPageType: string[]; ma
   { key: 'upsell',    label: 'Upsell',         matchPageType: ['UPSELL', 'upsell', 'UPSELL1', 'UPSELL2', 'UPSELL3'] },
   { key: 'thankyou',  label: 'Thank you',      matchPageType: ['THANKYOU', 'thankyou'] },
 ];
+
+// DB page types (Page.type / raw stepId) whose mapped funnel role is matched by some STEP_DEFS
+// entry, i.e. rows loadFunnelSteps can actually render (an ERROR page or an unmapped stepId
+// cannot). Derived from STEP_DEFS and DB_TO_FUNNEL_PAGE_TYPE so this set can never drift from
+// funnelRoleOf's mapping - do not hardcode a second copy of this list anywhere else.
+export const RENDERABLE_STEP_DB_TYPES: string[] = (() => {
+  const renderableRoles = new Set(STEP_DEFS.flatMap((def) => def.matchPageType));
+  return Object.entries(DB_TO_FUNNEL_PAGE_TYPE)
+    .filter(([, role]) => renderableRoles.has(role))
+    .map(([dbType]) => dbType);
+})();
 
 // dropEmpty hides steps with no page views (e.g. unused LP2/LP3 template slots) and recomputes drop
 // rates over only the visible steps, so the remaining percentages stay relative to the prior shown step.
@@ -208,6 +249,22 @@ export function aggregateFunnelSteps(input: FunnelStepInput, opts: { dropEmpty?:
     }
   }
 
+  // Keyed by (step key, name) rather than pushed into a list: two differently-cased stepId
+  // spellings (e.g. "custom" and "CUSTOM") both resolve to the same step here, and without
+  // merging they would render the same event name twice. Visitor counts are summed, which can
+  // slightly over-count a visitor present under both spellings - the same tradeoff the page-view
+  // path above already makes.
+  const eventsByStep = new Map<string, Map<string, number>>();
+  for (const e of input.customEvents ?? []) {
+    const t = (e.pageType || '').toString();
+    if (!t) continue;
+    const def = STEP_DEFS.find((d) => d.matchPageType.includes(t));
+    if (!def) continue;
+    const byName = eventsByStep.get(def.key) ?? new Map<string, number>();
+    byName.set(e.name, (byName.get(e.name) ?? 0) + e.visitors);
+    eventsByStep.set(def.key, byName);
+  }
+
   const defs = opts.dropEmpty ? STEP_DEFS.filter((def) => (counts.get(def.key) ?? 0) > 0) : STEP_DEFS;
 
   const rows: FunnelStepRow[] = [];
@@ -216,7 +273,14 @@ export function aggregateFunnelSteps(input: FunnelStepInput, opts: { dropEmpty?:
     const c = counts.get(def.key) ?? 0;
     let drop = 0;
     if (prev !== null && prev > 0) drop = Math.max(0, ((prev - c) / prev) * 100);
-    rows.push({ key: def.key, label: def.label, count: c, dropRate: drop });
+    const events = Array.from(eventsByStep.get(def.key) ?? new Map<string, number>(), ([name, visitors]) => ({
+      name,
+      visitors,
+    }))
+      .sort((a, b) => b.visitors - a.visitors)
+      .slice(0, MAX_EVENTS_PER_STEP)
+      .map((e) => ({ ...e, sharePct: c > 0 ? (e.visitors / c) * 100 : 0 }));
+    rows.push({ key: def.key, label: def.label, count: c, dropRate: drop, events });
     prev = c;
   }
   return rows;
@@ -301,6 +365,10 @@ const SOURCE_LABELS: Record<string, string> = {
   DIRECT:      'Direct',
   UNKNOWN:     'Unknown',
 };
+
+export function trafficSourceLabel(source: string): string {
+  return SOURCE_LABELS[source] || source;
+}
 
 export function deriveTrafficSource(
   trafficSource: string | null | undefined,

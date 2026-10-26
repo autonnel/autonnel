@@ -1,11 +1,22 @@
 import React, { useMemo } from 'react';
 import { Card as DsCard } from '../primitives/ds';
 import { buildFunnel, type FunnelStage, type FunnelUpsell } from '@/lib/stats/funnel-aggregate';
-import type { FunnelStatsBag } from '@/contracts/stats';
+import type { FunnelStatsBag, FunnelAdTotalsDto } from '@/contracts/stats';
+import { timezoneDisplay, timezoneOffsetMinutes } from '@/lib/constants/timezone';
 
 const ROW_HEIGHT = 76;
 const MIN_WIDTH = 0.08;
+// Ad-side stages are deliberately a different hue from the onsite stages: they are measured by the
+// platform, not by this installation, and the colour break is where that hand-off happens.
+const AD_STAGE_KEYS = new Set(['adImpressions', 'adLinkClicks']);
+const AD_STAGE_COLORS = ['#94A3B8', '#64748B'];
 const STAGE_COLORS = ['#3B82F6', '#2563EB', '#1D4ED8', '#1E40AF', '#1E3A8A', '#16A34A'];
+
+function stageColor(key: string, onsiteIndex: number): string {
+  if (key === 'adImpressions') return AD_STAGE_COLORS[0];
+  if (key === 'adLinkClicks') return AD_STAGE_COLORS[1];
+  return STAGE_COLORS[onsiteIndex % STAGE_COLORS.length];
+}
 
 function countText(value: number): string {
   return value.toLocaleString();
@@ -55,8 +66,16 @@ function FunnelRow({
   const isEntry = stage.conversionPct == null;
   return (
     <>
-      <div className="flex items-center justify-end pr-3 text-right">
+      <div className="flex flex-col items-end justify-center pr-3 text-right">
         <span className="text-[12.5px] font-medium leading-tight text-ds-ink">{stage.label}</span>
+        {AD_STAGE_KEYS.has(stage.key) && (
+          <span className="text-[10.5px] uppercase tracking-wide text-ds-faint">Platform</span>
+        )}
+        {stage.platformValue != null && (
+          <span className="text-[11px] text-ds-muted font-ds-mono tabular" title="Reported by the ad platform for this step. Shown alongside our own count, never merged with it.">
+            platform {countText(stage.platformValue)}
+          </span>
+        )}
       </div>
       <div className="relative" style={{ height: ROW_HEIGHT }}>
         <div
@@ -123,12 +142,35 @@ function UpsellSection({ upsells }: { upsells: FunnelUpsell[] }) {
   );
 }
 
-export default function FunnelPyramid({ stats }: { stats: FunnelStatsBag }) {
-  const funnel = useMemo(() => buildFunnel(stats), [stats]);
+export default function FunnelPyramid({
+  stats,
+  ad,
+  onsiteTimezone,
+}: {
+  stats: FunnelStatsBag;
+  ad?: FunnelAdTotalsDto | null;
+  onsiteTimezone?: string;
+}) {
+  const funnel = useMemo(() => buildFunnel(stats, ad), [stats, ad]);
   const { stages } = funnel;
+  const subtitle = ad
+    ? 'Ad impression through to order, platform-reported steps first'
+    : 'Visitor journey and drop-off across the funnel';
+  // The platform steps are cut on the ad account's calendar and, unlike the reconciliation table
+  // below, the onsite steps here come from pre-aggregated rollups that cannot be re-bucketed. Say
+  // so rather than let the single funnel imply the two halves cover the same hours -- but only when
+  // the calendars really differ. Zones are compared by UTC OFFSET, not by id: an operator on UTC-8
+  // and an account on America/Los_Angeles are on the same clock for half the year, and the Etc/GMT
+  // ids invert their own sign (Etc/GMT+8 is UTC-8), so an id comparison is wrong in both directions.
+  const misalignedZones = useMemo(() => {
+    if (!onsiteTimezone || !ad) return [];
+    const now = new Date();
+    const onsiteOffset = timezoneOffsetMinutes(onsiteTimezone, now);
+    return ad.platformTimezones.filter((tz) => timezoneOffsetMinutes(tz, now) !== onsiteOffset);
+  }, [ad, onsiteTimezone]);
 
   return (
-    <DsCard title="Conversion Funnel" subtitle="Visitor journey and drop-off across the funnel">
+    <DsCard title="Conversion Funnel" subtitle={subtitle}>
       <div className="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiTile label="Visitors" value={countText(funnel.visitors)} />
         <KpiTile label="Orders" value={countText(funnel.orders)} />
@@ -142,11 +184,12 @@ export default function FunnelPyramid({ stats }: { stats: FunnelStatsBag }) {
             const topWidth = displayWidth(stage.widthPct, stage.value);
             const next = stages[index + 1];
             const bottomWidth = next ? displayWidth(next.widthPct, next.value) : topWidth;
+            const onsiteIndex = index - stages.filter((s, i) => i < index && AD_STAGE_KEYS.has(s.key)).length;
             return (
               <FunnelRow
                 key={stage.key}
                 stage={stage}
-                color={STAGE_COLORS[index % STAGE_COLORS.length]}
+                color={stageColor(stage.key, onsiteIndex)}
                 topWidth={topWidth}
                 bottomWidth={bottomWidth}
               />
@@ -154,6 +197,15 @@ export default function FunnelPyramid({ stats }: { stats: FunnelStatsBag }) {
           })}
         </div>
       </div>
+
+      {misalignedZones.length > 0 && (
+        <div className="mx-auto mt-4 max-w-3xl text-[11.5px] leading-relaxed text-ds-muted">
+          Platform steps are cut on {misalignedZones.map((tz) => timezoneDisplay(tz)).join(', ')}; the
+          onsite steps below them on {timezoneDisplay(onsiteTimezone!)}. The day boundaries differ, so
+          the click-to-landing rate is approximate. The Ad performance table further down compares
+          both sides on the ad account's own calendar.
+        </div>
+      )}
 
       <UpsellSection upsells={funnel.upsells} />
     </DsCard>

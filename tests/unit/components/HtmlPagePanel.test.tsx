@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import HtmlPagePanel from '@/components/page-create/HtmlPagePanel';
+import { getInitialScriptsOn } from '@/components/grapesjs/canvasScripts';
 
 function mockFetchSequence(responses: Array<{ status?: number; body: any }>) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -75,6 +76,9 @@ describe('HtmlPagePanel — Clone Webpage', () => {
     expect(JSON.parse(String(calls[2].init?.body))).toEqual({
       htmlContent: '<p>imported</p>',
     });
+    // Cloned pages often lay themselves out from script (e.g. a breakpoint body class), so the
+    // editor must open with scripts running, same as importing from inside the editor.
+    expect(getInitialScriptsOn('p1')).toBe(true);
   });
 
   it('keeps the page and shows a warning when import fails', async () => {
@@ -106,6 +110,7 @@ describe('HtmlPagePanel — Clone Webpage', () => {
       expect(screen.getByText(/Import did not complete/i)).toBeTruthy(),
     );
     expect(onCreated).toHaveBeenCalledWith({ id: 'p2' });
+    expect(getInitialScriptsOn('p2')).toBe(false);
   });
 
   it('rejects invalid URL without calling fetch', async () => {

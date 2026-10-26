@@ -10,6 +10,16 @@ describe("CfWaitUntilExecutionAdapter", () => {
     expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
+  it("calls waitUntil with the execution context as receiver", () => {
+    const cfContext = {
+      waitUntil(this: unknown, _p: Promise<unknown>) {
+        if (this !== cfContext) throw new TypeError("Illegal invocation");
+      },
+    };
+    const adapter = new CfWaitUntilExecutionAdapter({ cfContext } as any);
+    expect(() => adapter.run(async () => {})).not.toThrow();
+  });
+
   it("falls back to fire-and-forget in Node (no cfContext)", () => {
     const adapter = new CfWaitUntilExecutionAdapter({} as any);
     const factory = vi.fn(async () => {});

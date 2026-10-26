@@ -26,6 +26,7 @@ function toVariantDto(variant: StorefrontVariantView): ShopVariantDto {
     price: minorToMajor(variant.priceMinor),
     comparePrice: variant.comparePriceMinor === null ? undefined : variant.comparePriceMinor / 100,
     thumbnail: variant.thumbnail ?? undefined,
+    priceCurrency: variant.priceMinor === null ? undefined : (variant.currencyCode ?? undefined),
   };
 }
 
@@ -39,6 +40,7 @@ export function toShopProductDto(view: StorefrontProductView, fallbackCurrency: 
     price: minorToMajor(view.priceMinor),
     comparePrice: minorToMajorOrNull(view.comparePriceMinor),
     currency: view.currencyCode ?? fallbackCurrency,
+    priceCurrency: view.priceMinor === null ? undefined : (view.currencyCode ?? undefined),
     variants: view.variants.map(toVariantDto),
   };
 }

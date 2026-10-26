@@ -12,8 +12,9 @@ const readPort = {
   availableCurrencies: vi.fn(),
 } satisfies Record<keyof StorefrontCatalogReadPort, ReturnType<typeof vi.fn>>;
 
+const makeReadSide = vi.hoisted(() => vi.fn());
 vi.mock("@/composition/make-commerce-gateway", () => ({
-  makeLiveStorefrontCatalogReadSide: async () => readPort,
+  makeLiveStorefrontCatalogReadSide: (...args: unknown[]) => makeReadSide(...args),
 }));
 
 import { GET } from "./products";
@@ -35,19 +36,46 @@ function view(over: Partial<StorefrontProductView> = {}): StorefrontProductView 
   };
 }
 
-async function call(qs: string): Promise<ShopProductListDto | ShopProductSingleDto> {
-  const request = new Request(`https://shop.test/api/shop/products?${qs}`);
+async function call(qs: string, headers: Record<string, string> = {}): Promise<ShopProductListDto | ShopProductSingleDto> {
+  const request = new Request(`https://shop.test/api/shop/products?${qs}`, { headers });
   const res = await (GET as any)({ request, params: {}, locals: {} });
   return res.json();
 }
 
 beforeEach(() => {
+  makeReadSide.mockReset();
+  makeReadSide.mockResolvedValue(readPort);
   readPort.list.mockReset();
   readPort.getByRef.mockReset();
   readPort.search.mockReset();
 });
 
 describe("GET /api/shop/products", () => {
+  it("regionId EUR queries the DE catalog regardless of the IP country", async () => {
+    readPort.list.mockResolvedValue({ products: [view({ currencyCode: "EUR" })], hasMore: false });
+    const body = (await call("regionId=EUR", { "cf-ipcountry": "US" })) as ShopProductListDto;
+    expect(makeReadSide).toHaveBeenCalledWith({ countryCode: "DE" });
+    expect(body.products[0].currency).toBe("EUR");
+  });
+
+  it("keeps the IP country when no regionId is given", async () => {
+    readPort.list.mockResolvedValue({ products: [], hasMore: false });
+    await call("limit=5", { "cf-ipcountry": "GB" });
+    expect(makeReadSide).toHaveBeenCalledWith({ countryCode: "GB" });
+  });
+
+  it("keeps the IP country for regionId=default", async () => {
+    readPort.list.mockResolvedValue({ products: [], hasMore: false });
+    await call("regionId=default", { "cf-ipcountry": "GB" });
+    expect(makeReadSide).toHaveBeenCalledWith({ countryCode: "GB" });
+  });
+
+  it("rejects an unsupported regionId currency with 400", async () => {
+    const request = new Request("https://shop.test/api/shop/products?regionId=XXX");
+    const res = await (GET as any)({ request, params: {}, locals: {} });
+    expect(res.status).toBe(400);
+  });
+
   it("maps a list page to ShopProductDto (major units, fallback currency)", async () => {
     readPort.list.mockResolvedValue({ products: [view()], hasMore: true });
     const body = (await call("limit=10")) as ShopProductListDto;

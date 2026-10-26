@@ -23,6 +23,7 @@ function session() {
     stepSlugs: [StepSlug.of('checkout')],
     attribution: AttributionSnapshot.empty('sess_1'),
     entryStep: StepSlug.of('checkout'),
+    market: { countryCode: 'US', currencyCode: 'USD' },
   });
   s.addLine(OfferLineItem.create({ variantExternalId: ExternalRef.of('gid://v/1'), title: 'x', quantity: 2, unitPrice: PriceSnapshot.create(Money.of(1000, 'USD'), now) }));
   return s;
@@ -82,7 +83,7 @@ describe('SubmitCheckoutService', () => {
     await svc.execute({ session: session(), buyer, coupon, captureMethod: 'automatic' });
 
     // Re-checked with the PRE-coupon subtotal (2 x $10.00), not the discounted total.
-    expect(couponGuard.assertRedeemable).toHaveBeenCalledWith('SAVE5', 2000, now);
+    expect(couponGuard.assertRedeemable).toHaveBeenCalledWith('SAVE5', 2000, 'USD', now);
     expect(payments.createIntent).toHaveBeenCalledWith('sale_2', expect.objectContaining({ amountMinor: 1500 }), 'automatic', undefined, expect.anything());
   });
 

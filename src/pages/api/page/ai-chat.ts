@@ -218,6 +218,7 @@ export const POST: APIRoute = async (ctx) => {
     return jsonResponse({ explanation, content: newContent, root: newRoot });
   } catch (error) {
     logger.error('Agent generation failed', { error });
-    return jsonError('AI generation failed. Please try again.', 500);
+    const reason = error instanceof Error && error.message ? `: ${error.message}` : '. Please try again.';
+    return jsonError(`AI generation failed${reason}`, 500);
   }
 };

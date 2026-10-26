@@ -4,15 +4,13 @@ import { Inbox, Search } from 'lucide-react';
 import { RichBody } from './RichBody';
 import { OrderCard } from './OrderTrackingCard';
 import type { TrackedOrder } from './OrderTrackingCard';
-import { useTranslation } from '../LanguageContext';
+import { formatMoney } from '@/lib/i18n/format-money';
+import { useLanguage, useTranslation } from '../LanguageContext';
 import { getTextContent, getTextStyle, hasText, scaledFontSize, type TextFieldValue } from '../TextField';
 import type { OrderTrackingPanelProps } from './OrderTrackingPanel';
 
-export function currencyFormatter() {
-  return (amount: number, currency: string) => new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency || 'USD',
-  }).format(amount);
+export function currencyFormatter(language: string) {
+  return (amount: number, currency: string) => formatMoney(amount, currency || 'USD', language);
 }
 
 export function containerStyle(props: Required<Pick<OrderTrackingPanelProps, 'backgroundColor' | 'borderColor' | 'borderRadius' | 'padding'>>): React.CSSProperties {
@@ -225,7 +223,8 @@ function OrdersList({
   visibility: Pick<OrderTrackingPanelProps, 'showOrderStatus' | 'showOrderItems' | 'showShippingAddress' | 'showPaymentInfo'>;
 }) {
   const t = useTranslation();
-  const formatCurrency = useMemo(currencyFormatter, []);
+  const language = useLanguage();
+  const formatCurrency = useMemo(() => currencyFormatter(language), [language]);
 
   return (
     <div>

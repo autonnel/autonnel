@@ -168,8 +168,8 @@ export function AddressFields({
             {(validationErrors.has('address1') || poBoxFields.has('address1')) && (
               <p style={errorMsgStyle}>
                 {poBoxFields.has('address1')
-                  ? 'PO Box addresses are not allowed'
-                  : 'This field is required'}
+                  ? t('validation.poBoxNotAllowed')
+                  : t('validation.fieldRequired')}
               </p>
             )}
           </div>

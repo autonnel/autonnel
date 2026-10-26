@@ -17,3 +17,10 @@ export class InvalidBuilderExtensionError extends Error {
     this.name = 'InvalidBuilderExtensionError';
   }
 }
+
+export class InvalidPluginContractError extends Error {
+  constructor(public readonly pluginName: string, detail: string) {
+    super(`Plugin "${pluginName}": ${detail}`);
+    this.name = 'InvalidPluginContractError';
+  }
+}

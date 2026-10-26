@@ -1,0 +1,198 @@
+---
+import DashboardLayout from '@/layouts/DashboardLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/rbac';
+import { loadAdReconciliation } from '@/lib/dashboard/ads-reconciliation-data';
+import { loadFunnelOptions } from '@/lib/dashboard/analytics-data';
+import { resolveAnalyticsWindow } from '@/lib/dashboard/analytics-helpers';
+import { getTenantPrisma } from '@/modules/platform/infra/prisma-tenant-extension';
+import { cn } from '@/lib/utils';
+import { createLogger } from '@/lib/logger';
+import AnalyticsTabs from '@/components/analytics/AnalyticsTabs.astro';
+import AdReconciliationTable from '@/components/analytics/AdReconciliationTable';
+import UnassignedCreativesTable from '@/components/analytics/UnassignedCreativesTable';
+import AdsRefreshButton from '@/components/analytics/AdsRefreshButton';
+import { formatMoney, formatCount } from '@/components/analytics/ad-diff-cells';
+import Stat from '@/components/primitives/ds/Stat';
+import { dsFieldClass } from '@/components/primitives/field-styles';
+import { getSiteTimezone } from '@/lib/config/keys';
+
+const logger = createLogger('analytics:ads-page');
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) return Astro.redirect('/login');
+if (!(await userHasFeature(auth.user.id, FEATURES.ANALYTICS))) return Astro.redirect('/');
+
+const url = new URL(Astro.request.url);
+const siteTimezone = await getSiteTimezone().catch(() => undefined);
+// Defaults to 7 days, not resolveAnalyticsWindow's own 24h default: ad spend is usually reviewed
+// over a week, and a single day of platform-vs-onsite noise is far more likely to false-positive.
+const timeWindow = resolveAnalyticsWindow({
+  range: url.searchParams.get('range') || '7d',
+  start: url.searchParams.get('start'),
+  end: url.searchParams.get('end'),
+  tz: siteTimezone,
+});
+
+const [vm, funnelOptions, connectionCount] = await Promise.all([
+  loadAdReconciliation({
+    start: timeWindow.start,
+    end: timeWindow.end,
+    startDateStr: timeWindow.startDateStr,
+    endDateStr: timeWindow.endDateStr,
+  }).catch((err) => {
+    logger.error('ad reconciliation failed to load', { error: err });
+    return null;
+  }),
+  loadFunnelOptions().catch(() => []),
+  getTenantPrisma()
+    .adAccountConnection.count()
+    .catch(() => 0),
+]);
+
+const loadFailed = vm === null;
+const noConnections = connectionCount === 0;
+
+const presetRange = timeWindow.range === 'custom' ? '' : timeWindow.range;
+const customStart = timeWindow.range === 'custom' ? timeWindow.startDateStr : '';
+const customEnd = timeWindow.range === 'custom' ? timeWindow.endDateStr : '';
+---
+
+<DashboardLayout title="Analytics - Ads" activeNav="analytics">
+  <div class="grid grid-cols-12 gap-5">
+    <AnalyticsTabs active="ads" query={url.search} />
+
+    <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-4">
+      <form method="get" action="/analytics/ads" class="flex items-end justify-between gap-4 flex-wrap">
+        <input type="hidden" name="range" id="ad-range" value={presetRange} />
+        <div class="flex items-end gap-3 flex-wrap">
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">Quick range</label>
+            <div class="inline-flex rounded-[7px] border border-ds-line overflow-hidden h-8">
+              {(['24h', '7d', '30d'] as const).map((r, i) => (
+                <button
+                  type="button"
+                  data-range={r}
+                  class={cn(
+                    "ad-preset px-3 text-[12.5px] font-medium",
+                    i > 0 && "border-l border-ds-line",
+                    timeWindow.range === r ? "bg-ds-ink text-ds-card" : "bg-ds-card text-ds-slate hover:bg-[#F9FAFB]",
+                  )}
+                >{r}</button>
+              ))}
+            </div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">From</label>
+            <input type="date" name="start" id="ad-start" value={customStart} class={cn(dsFieldClass, "h-8 w-[140px]")} />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">To</label>
+            <input type="date" name="end" id="ad-end" value={customEnd} class={cn(dsFieldClass, "h-8 w-[140px]")} />
+          </div>
+          <button
+            type="submit"
+            class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-4 text-[13px] bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937]"
+          >
+            Apply
+          </button>
+        </div>
+        <div class="flex items-end gap-4">
+          <div class="text-right">
+            <div class="text-[12.5px] text-ds-muted">Showing</div>
+            <div class="text-[14px] font-semibold text-ds-ink mt-0.5">{timeWindow.label}</div>
+          </div>
+          <AdsRefreshButton client:load />
+        </div>
+      </form>
+    </div>
+
+    {vm?.staleConnections && vm.staleConnections.length > 0 && (
+      <div class="col-span-12 bg-ds-warnBg border border-ds-warnBorder rounded-[10px] px-5 py-3 text-[12.5px] text-ds-warnText">
+        These ad accounts need to be reconnected, and their numbers are stale: {vm.staleConnections.join(', ')}.
+      </div>
+    )}
+
+    {loadFailed ? (
+      <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] px-6 py-12 text-center text-[13px] text-ds-muted">
+        Could not load ad reconciliation data. This is a query failure, not an empty range. Try again, and check server logs if it persists.
+      </div>
+    ) : noConnections ? (
+      <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] px-6 py-16 text-center">
+        <div class="text-[14px] font-semibold text-ds-ink mb-1.5">No ad accounts connected yet</div>
+        <p class="text-[13px] text-ds-muted max-w-md mx-auto mb-4">
+          Connect a Facebook, TikTok, Google Ads, or Bing Ads account to see spend, clicks, and conversions compared against what this installation recorded.
+        </p>
+        <a
+          href="/settings/ads"
+          class="inline-flex items-center justify-center font-medium rounded-[7px] h-8 px-4 text-[13px] bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937] no-underline"
+        >
+          Go to Settings
+        </a>
+      </div>
+    ) : (
+      <>
+        {vm.currencyGroups.length === 0 && vm.unassigned.length === 0 && (
+          <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] px-6 py-12 text-center text-[13px] text-ds-muted">
+            No ad spend recorded in this range.
+          </div>
+        )}
+
+        {vm.currencyGroups.map((group) => (
+          <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+            <div class="px-6 pt-5 pb-4 flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <div class="text-[14px] font-semibold text-ds-ink">{group.currency}</div>
+                <div class="text-[12.5px] text-ds-muted mt-0.5">Per-funnel ad spend versus what this installation recorded &#183; {timeWindow.label}</div>
+              </div>
+              <div class="flex items-center gap-6 flex-wrap">
+                <Stat label="Spend" value={formatMoney(group.totals.spendMinor, group.currency)} />
+                <Stat label="Impressions" value={formatCount(group.totals.impressions)} />
+                <Stat label="Link clicks" value={formatCount(group.totals.linkClicks)} />
+                <Stat label="Checkout init" value={group.totals.platformCheckoutInit === null ? '-' : formatCount(group.totals.platformCheckoutInit)} />
+              </div>
+            </div>
+
+            {group.unattributedSpendMinor > 0 && (
+              <div class="mx-6 mb-4 bg-ds-surface2 border border-ds-line rounded-[8px] px-4 py-3 text-[12.5px] text-ds-muted">
+                <span class="font-medium text-ds-ink">{formatMoney(group.unattributedSpendMinor, group.currency)}</span> in unattributed spend
+                across {group.unattributedCreatives} creative(s) is excluded from the table below. Assign these creatives to a funnel further down the page to include them.
+              </div>
+            )}
+
+            <AdReconciliationTable client:load rows={group.rows} currency={group.currency} />
+          </div>
+        ))}
+
+        {vm.unassigned.length > 0 && (
+          <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+            <div class="px-6 pt-5 pb-4">
+              <div class="text-[14px] font-semibold text-ds-ink">Unassigned creatives</div>
+              <div class="text-[12.5px] text-ds-muted mt-0.5">
+                Ads whose destination page could not be matched to exactly one funnel. Their spend is excluded from the tables above until assigned.
+              </div>
+            </div>
+            <UnassignedCreativesTable client:load items={vm.unassigned} funnelOptions={funnelOptions} />
+          </div>
+        )}
+      </>
+    )}
+  </div>
+
+  <script>
+    document.querySelectorAll('.ad-preset').forEach((el) => {
+      el.addEventListener('click', () => {
+        const btn = el as HTMLElement;
+        const form = btn.closest('form') as HTMLFormElement | null;
+        if (!form) return;
+        const start = form.querySelector('#ad-start') as HTMLInputElement | null;
+        const end = form.querySelector('#ad-end') as HTMLInputElement | null;
+        const range = form.querySelector('#ad-range') as HTMLInputElement | null;
+        if (start) start.value = '';
+        if (end) end.value = '';
+        if (range) range.value = btn.dataset.range || '';
+        form.submit();
+      });
+    });
+  </script>
+</DashboardLayout>

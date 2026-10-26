@@ -2,6 +2,8 @@
 import type { FaviconVariants } from '@/lib/storefront/favicon';
 import { buildFaviconHtml } from '@/lib/storefront/favicon';
 import StorefrontHeadLinks from './StorefrontHeadLinks.astro';
+import { getSiteNoindex } from '@/lib/config/keys';
+import { NOINDEX_ROBOTS_DIRECTIVE } from '@/lib/seo/robots';
 
 interface Props {
   pageTitle: string;
@@ -22,10 +24,12 @@ const {
 } = Astro.props;
 
 const faviconHtml = buildFaviconHtml(favicon);
+const noindex = await getSiteNoindex().catch(() => false);
 ---
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{pageTitle}</title>
+{noindex && <meta name="robots" content={NOINDEX_ROBOTS_DIRECTIVE}>}
 {pageDescription && <meta name="description" content={pageDescription}>}
 {faviconHtml && <Fragment set:html={faviconHtml} />}
 {meta.ogImage && <meta property="og:image" content={meta.ogImage}>}

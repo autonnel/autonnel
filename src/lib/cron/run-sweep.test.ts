@@ -168,4 +168,15 @@ describe("runSweep — interval gating", () => {
     // The lock was taken, so it must still be released.
     expect(racy.releaseLock).toHaveBeenCalledWith("cron:lock:commerce.catalog-sync");
   });
+
+  it("gates and locks an uncataloged sweep by the schedule passed in (plugin crons)", async () => {
+    const fn = vi.fn(async () => "ok");
+    const schedule = { intervalMs: 10 * 60_000, lockTtlSeconds: 45 };
+    expect(await runSweep("plugin.p.sync", fn, schedule)).toBe("ok");
+    expect(await runSweep("plugin.p.sync", fn, schedule)).toBeUndefined();
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(cache.acquireLock).toHaveBeenCalledWith("cron:lock:plugin.p.sync", 45);
+    expect(cache.set).toHaveBeenCalledWith("cron:last:plugin.p.sync", expect.any(Number), 600);
+  });
 });
+

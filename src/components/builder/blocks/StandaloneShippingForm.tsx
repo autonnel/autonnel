@@ -284,8 +284,8 @@ export function StandaloneShippingForm(props: StandaloneShippingFormProps) {
   const addressFields = (data: AddressData, onChange: AddressHandler) => {
     const a1HasPoBox = poBoxHits.has('address1');
     const a2HasPoBox = poBoxHits.has('address2');
-    const poBoxMessage = 'PO Box addresses are not allowed';
-    const requiredMessage = 'This field is required';
+    const poBoxMessage = t('validation.poBoxNotAllowed');
+    const requiredMessage = t('validation.fieldRequired');
 
     return (
       <>
@@ -325,7 +325,7 @@ export function StandaloneShippingForm(props: StandaloneShippingFormProps) {
               name="city"
               value={data.city}
               onChange={onChange}
-              placeholder="New York"
+              placeholder={t('address.cityPlaceholder')}
               required
               style={requiredInput('city')}
             />
@@ -345,7 +345,7 @@ export function StandaloneShippingForm(props: StandaloneShippingFormProps) {
               name="postalCode"
               value={data.postalCode}
               onChange={onChange}
-              placeholder="10001"
+              placeholder={t('address.zipPlaceholder')}
               required
               style={requiredInput('postalCode')}
             />

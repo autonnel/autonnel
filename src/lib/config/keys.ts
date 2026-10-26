@@ -61,6 +61,8 @@ export const ConfigKeys = {
 
   SETUP_COMPLETED:        k<boolean>('setup.completed',             'SETUP_COMPLETED'),
 
+  SITE_NOINDEX:           k<boolean>('site.noindex',                'SITE_NOINDEX'),
+
   BRANDING_NAME:          k<string>('branding.name',                'BRANDING_NAME'),
   BRANDING_LOGO:          k<BrandingLogo>('branding.logo',          'BRANDING_LOGO'),
   BRANDING_FAVICON:       k<BrandingFavicon>('branding.favicon',    'BRANDING_FAVICON'),
@@ -81,6 +83,20 @@ export const ConfigKeys = {
 
   CF_BROWSER_RENDERING_ACCOUNT_ID: k<string>('cf.browser_rendering.account_id', 'CF_BROWSER_RENDERING_ACCOUNT_ID'),
   CF_BROWSER_RENDERING_API_TOKEN:  k<string>('cf.browser_rendering.api_token',  'CF_BROWSER_RENDERING_API_TOKEN'),
+
+  // These nine keys were published by the paid ads plugin this feature replaces; keep the exact names.
+  ADS_FACEBOOK_APP_ID:        k<string>('ads.facebook.app_id',            'FACEBOOK_APP_ID'),
+  ADS_FACEBOOK_APP_SECRET:    k<string>('ads.facebook.app_secret',        'FACEBOOK_APP_SECRET'),
+  ADS_TIKTOK_APP_ID:          k<string>('ads.tiktok.app_id',              'TIKTOK_APP_ID'),
+  ADS_TIKTOK_APP_SECRET:      k<string>('ads.tiktok.app_secret',          'TIKTOK_APP_SECRET'),
+  ADS_GOOGLE_CLIENT_ID:       k<string>('ads.google_ads.client_id',       'GOOGLE_ADS_CLIENT_ID'),
+  ADS_GOOGLE_CLIENT_SECRET:   k<string>('ads.google_ads.client_secret',   'GOOGLE_ADS_CLIENT_SECRET'),
+  ADS_GOOGLE_DEVELOPER_TOKEN: k<string>('ads.google_ads.developer_token', 'GOOGLE_ADS_DEVELOPER_TOKEN'),
+  ADS_BING_CLIENT_ID:         k<string>('ads.bing_ads.client_id',         'BING_ADS_CLIENT_ID'),
+  ADS_BING_CLIENT_SECRET:     k<string>('ads.bing_ads.client_secret',     'BING_ADS_CLIENT_SECRET'),
+
+  // Hosted OAuth relay: no secret here, credentials live on the relay side.
+  ADS_RELAY_BASE_URL: k<string>('ads.relay.base_url', 'ADS_OAUTH_RELAY_URL'),
 } as const;
 
 export type ConfigKeyName = keyof typeof ConfigKeys;
@@ -149,6 +165,14 @@ export const setNotificationsRoutes = (value: NotificationPairing[]) =>
 // Raw value (may be an env-fallback string); normalize via deriveSetupState in lib/auth/setup-state.
 export const getSetupCompletedRaw = () => readConfigKey<boolean | string>(ConfigKeys.SETUP_COMPLETED);
 export const setSetupCompleted    = (v: boolean) => setConfig(ConfigKeys.SETUP_COMPLETED.key, v);
+
+// Discourage search engines: serves a blanket-disallow robots.txt and tags every storefront
+// response noindex. The env fallback may arrive as the string "true"/"false" from process.env.
+export const getSiteNoindex = async (): Promise<boolean> => {
+  const raw = await readConfigKey<boolean | string>(ConfigKeys.SITE_NOINDEX);
+  return raw === true || raw === 'true';
+};
+export const setSiteNoindex = (v: boolean) => setConfig(ConfigKeys.SITE_NOINDEX.key, v);
 
 export const getBrandingName     = () => readConfigKey<string>(ConfigKeys.BRANDING_NAME);
 export const setBrandingName     = (v: string) => setConfig(ConfigKeys.BRANDING_NAME.key, v);

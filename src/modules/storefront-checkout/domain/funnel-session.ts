@@ -10,6 +10,11 @@ class Cart {
   coupon: AppliedCoupon | null = null;
 }
 
+export interface SessionMarket {
+  countryCode: string;
+  currencyCode: string;
+}
+
 export interface StartFunnelSessionProps {
   sessionId: string;
   tenantId: string;
@@ -17,6 +22,7 @@ export interface StartFunnelSessionProps {
   stepSlugs: StepSlug[];
   attribution: AttributionSnapshot;
   entryStep: StepSlug;
+  market: SessionMarket;
 }
 
 export class FunnelSession {
@@ -33,6 +39,8 @@ export class FunnelSession {
     private readonly stepValues: Set<string>,
     readonly attribution: AttributionSnapshot,
     entryStep: StepSlug,
+    // Fixed at session start from the entry page's currency; every line and upsell is priced in it.
+    readonly market: SessionMarket,
   ) {
     this._currentStep = entryStep;
   }
@@ -49,6 +57,7 @@ export class FunnelSession {
       values,
       props.attribution,
       props.entryStep,
+      { countryCode: props.market.countryCode, currencyCode: props.market.currencyCode },
     );
   }
 
@@ -76,6 +85,10 @@ export class FunnelSession {
 
   addLine(line: OfferLineItem): void {
     this.cart.lines.push(line);
+  }
+
+  clearLines(): void {
+    this.cart.lines = [];
   }
 
   applyCoupon(coupon: AppliedCoupon): void {

@@ -18,6 +18,7 @@ function setup() {
       findByPlatformAccount: async () => null,
       list: async () => saved,
       save: async (c) => { saved.push(c); },
+      saveDiscoveredMeta: async () => {},
     },
     events: { publish: async (e) => { published.push(e); } },
     newId: () => `id-${n++}`,

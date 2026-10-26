@@ -27,6 +27,8 @@ const ASSET_ATTRIBUTES = [
 ];
 
 const BACKGROUND_URL_REGEX = /url\(['"]?([^'")\s]+)['"]?\)/gi;
+const CSS_URL_REGEX = /url\(\s*(['"]?)([^'")]+?)\1\s*\)/gi;
+const CSS_IMPORT_REGEX = /@import\s+(['"])([^'"]+)\1/gi;
 
 function resolveUrl(base: string, relative: string): string {
   try {
@@ -35,6 +37,16 @@ function resolveUrl(base: string, relative: string): string {
   } catch {
     return relative;
   }
+}
+
+// A rehosted stylesheet moves away from its relative fonts and images, so they are pinned to the
+// original host instead of being 404s on ours.
+export function absolutizeCssUrls(css: string, cssUrl: string): string {
+  const absolutize = (ref: string): string =>
+    ref.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(ref) ? ref : resolveUrl(cssUrl, ref);
+  return css
+    .replace(CSS_URL_REGEX, (_m, quote: string, ref: string) => `url(${quote}${absolutize(ref.trim())}${quote})`)
+    .replace(CSS_IMPORT_REGEX, (_m, quote: string, ref: string) => `@import ${quote}${absolutize(ref)}${quote}`);
 }
 
 export interface MigrateAssetsContext {
@@ -89,7 +101,9 @@ export async function migrateAssets(
     [...pending].map((absolute) =>
       limit(async () => {
         try {
-          const key = await uploadFromUrl(absolute, ctx.baseFolder, ctx.s3Config);
+          const key = await uploadFromUrl(absolute, ctx.baseFolder, ctx.s3Config, {
+            transformCss: (css) => absolutizeCssUrls(css, absolute),
+          });
           replacements.set(absolute, buildUrlFromContext(key, ctx.uploadCtx));
         } catch (err) {
           logger.warn('Asset migration failed', { absolute, error: err });
@@ -118,7 +132,10 @@ export async function migrateAssets(
         $el.attr(attr, items.join(', '));
       } else {
         const next = rewritten(value);
-        if (next) $el.attr(attr, next);
+        if (!next) continue;
+        $el.attr(attr, next);
+        // SRI forces a CORS fetch, which our static host does not answer.
+        if ($el.is('script, link')) $el.removeAttr('integrity').removeAttr('crossorigin');
       }
     }
   }

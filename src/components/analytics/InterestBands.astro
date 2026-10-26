@@ -1,0 +1,89 @@
+---
+import type { InterestRow } from '@/lib/dashboard/interest-data';
+import { biggestExit, bandStartPct, formatDuration } from '@/lib/stats/engagement';
+
+interface Props {
+  row: InterestRow;
+  bandUrl: (slug: string | null, pct: number) => string | null;
+}
+
+const { row, bandUrl } = Astro.props;
+const top = biggestExit(row.bands, row.uv);
+// Reached and Median seen need a full-length dwellByDepth, which a cached
+// pre-feature tracker never sends. Without saying so, band 0 reading below UV
+// looks like visitors who never saw the top of the page.
+const partialPopulation = row.bands.length > 0 && row.measuredRows < row.uv;
+
+const MEDIAN_SEEN_HINT =
+  "Read it down the page, not as a ranking: the viewport starts at the top, so the first slices collect the whole visit of everyone who never scrolled and are high on every page by construction.";
+const ACTED_HINT =
+  "Visitors who clicked, expanded, or played something inside this slice. One visitor counts once per slice however many times they acted there.";
+const STOPPED_HERE_HINT =
+  "Visitors whose deepest point fell inside this slice. This is where people actually stopped, unlike a fall in Reached, which also counts people who scrolled straight past.";
+---
+
+<tr hidden id={`bands-${row.pageId}`}>
+  <td colspan="4" class="bg-ds-surface2 px-6 py-4 border-b border-[#F3F4F6]">
+    {row.bands.length === 0 ? (
+      <div class="text-[12.5px] text-ds-muted">
+        No per-band data for this page yet. Only visitors running the current tracker report it.
+      </div>
+    ) : (
+      <Fragment>
+        {partialPopulation && (
+          <div class="text-[12.5px] text-ds-muted mb-3">
+            Reached and Median seen cover the {row.measuredRows} of {row.uv} visits whose tracker reported per-slice depth; Stopped here and Acted cover every visit in the row.
+          </div>
+        )}
+        {!top && (
+          <div class="text-[12.5px] text-ds-muted mb-3">
+            No single slice stands out: every one loses a similar share.
+          </div>
+        )}
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead>
+              <tr class="border-b border-ds-line">
+                <th class="px-3 py-2 text-[11px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Depth</th>
+                <th class="px-3 py-2 text-[11px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Reached</th>
+                <th class="px-3 py-2 text-[11px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right" title={MEDIAN_SEEN_HINT}>Median seen</th>
+                <th class="px-3 py-2 text-[11px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right" title={STOPPED_HERE_HINT}>Stopped here</th>
+                <th class="px-3 py-2 text-[11px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right" title={ACTED_HINT}>Acted</th>
+                <th class="px-3 py-2 text-[11px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              {row.bands.map((b) => {
+                const href = bandUrl(row.pageSlug, bandStartPct(b.index));
+                const isTop = top?.index === b.index;
+                return (
+                  <tr class="border-b border-[#F3F4F6]">
+                    <td class="px-3 py-1.5 text-[12.5px] text-ds-ink">
+                      {b.label}
+                      {isTop && (
+                        <span class="ml-2 inline-flex items-center rounded-full border border-ds-line bg-ds-card px-1.5 py-[1px] text-[10.5px] font-medium text-ds-slate">
+                          Most stop here
+                        </span>
+                      )}
+                    </td>
+                    <td class="px-3 py-1.5 text-[12.5px] text-ds-ink text-right font-ds-mono tabular">{b.reached}</td>
+                    <td class="px-3 py-1.5 text-[12.5px] text-ds-ink text-right font-ds-mono tabular">{formatDuration(b.medianVisibleMs)}</td>
+                    <td class="px-3 py-1.5 text-[12.5px] text-ds-ink text-right font-ds-mono tabular">{b.exits}</td>
+                    <td class="px-3 py-1.5 text-[12.5px] text-ds-ink text-right font-ds-mono tabular">{b.interactions}</td>
+                    <td class="px-3 py-1.5 text-[12.5px]">
+                      {href && (
+                        <a href={href} target="_blank" rel="noopener noreferrer" title="Open the live page at this position (tracking disabled)" class="text-ds-accent no-underline hover:underline">
+                          Open
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Fragment>
+    )}
+  </td>
+</tr>

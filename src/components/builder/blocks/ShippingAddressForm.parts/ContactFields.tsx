@@ -53,8 +53,8 @@ export function ContactFields({
           {(formatErrors.has('email') || validationErrors.has('email')) && (
             <p style={errorMsgStyle}>
               {formatErrors.has('email')
-                ? 'Please enter a valid email address'
-                : 'This field is required'}
+                ? t('validation.invalidEmailInline')
+                : t('validation.fieldRequired')}
             </p>
           )}
         </div>
@@ -73,7 +73,7 @@ export function ContactFields({
             style={getFieldStyle('firstName')}
           />
           {validationErrors.has('firstName') && (
-            <p style={errorMsgStyle}>This field is required</p>
+            <p style={errorMsgStyle}>{t('validation.fieldRequired')}</p>
           )}
         </div>
         <div>
@@ -88,7 +88,7 @@ export function ContactFields({
             style={getFieldStyle('lastName')}
           />
           {validationErrors.has('lastName') && (
-            <p style={errorMsgStyle}>This field is required</p>
+            <p style={errorMsgStyle}>{t('validation.fieldRequired')}</p>
           )}
         </div>
       </div>
@@ -106,7 +106,7 @@ export function ContactFields({
             style={getFieldStyle('phone')}
           />
           {validationErrors.has('phone') && (
-            <p style={errorMsgStyle}>This field is required</p>
+            <p style={errorMsgStyle}>{t('validation.fieldRequired')}</p>
           )}
         </div>
       )}

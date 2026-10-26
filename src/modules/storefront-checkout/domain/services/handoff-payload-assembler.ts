@@ -19,6 +19,7 @@ export interface HandoffPayload {
     fullName: string;
     hashedIdentity: string;
     shippingAddress: Record<string, unknown>;
+    email?: string;
   };
 }
 
@@ -57,6 +58,7 @@ export class HandoffPayloadAssembler {
         fullName: snapshot.buyer.fullName,
         hashedIdentity: snapshot.buyer.hashedIdentity,
         shippingAddress: snapshot.buyer.address,
+        ...(snapshot.buyer.channel === 'email' ? { email: snapshot.buyer.normalized } : {}),
       },
     };
   }

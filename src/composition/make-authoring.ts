@@ -5,6 +5,7 @@ import { PageDashboardService } from '@/modules/authoring/application/page-dashb
 import { AiChatSessionService } from '@/modules/authoring/application/ai-chat-session-service';
 import { PrismaFunnelRepository } from '@/modules/authoring/infra/prisma/funnel-repository';
 import { FunnelComposingService } from '@/modules/authoring/application/funnel-composing-service';
+import { makeSafeFunnelPublisher } from './funnel-publishing';
 
 interface MakeAuthoringDeps {
   db: PrismaClient;
@@ -25,7 +26,7 @@ export function makeAuthoring(deps: MakeAuthoringDeps) {
   };
 
   return {
-    funnelComposing: new FunnelComposingService({ funnels, pages, events }),
+    funnelComposing: new FunnelComposingService({ funnels, pages, events, publisher: makeSafeFunnelPublisher(deps.db) }),
     pageDashboard: new PageDashboardService({ pages: pageDashboardRepo }),
     aiChatSessions: new AiChatSessionService({ sessions: chatSessionRepo }),
   };

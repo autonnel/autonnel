@@ -50,4 +50,10 @@ describe('registerPlugins — engines compatibility gate', () => {
   it('zero plugins never throws', () => {
     expect(() => registerPlugins([])).not.toThrow();
   });
+
+  it('skips the check for the runtime re-registration, which cannot read the core package.json', () => {
+    expect(() => registerPlugins([plugin('future', { autonnel: '>=999.0.0' })], { checkEngines: false })).not.toThrow();
+    expect(() => registerPlugins([plugin('future', { autonnel: '>=999.0.0' })])).toThrow();
+  });
 });
+

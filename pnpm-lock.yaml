@@ -21,6 +21,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.54
         version: 3.0.65(zod@4.4.3)
+      '@ai-sdk/provider':
+        specifier: ^3.0.10
+        version: 3.0.10
       '@arco-design/web-react':
         specifier: ^2.66.15
         version: 2.66.15(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -108,6 +111,9 @@ importers:
       grapesjs-blocks-basic:
         specifier: ^1.0.2
         version: 1.0.2
+      grapesjs-parser-postcss:
+        specifier: 1.0.3
+        version: 1.0.3
       grapesjs-preset-webpage:
         specifier: ^1.0.3
         version: 1.0.3
@@ -162,6 +168,9 @@ importers:
       uuid:
         specifier: ^13.0.0
         version: 13.0.2
+      workers-ai-provider:
+        specifier: ^3.3.1
+        version: 3.3.1(@ai-sdk/anthropic@3.0.79(zod@4.4.3))(@ai-sdk/openai@3.0.65(zod@4.4.3))(@ai-sdk/provider@3.0.10)(ai@6.0.191(zod@4.4.3))
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -3074,6 +3083,9 @@ packages:
   grapesjs-blocks-basic@1.0.2:
     resolution: {integrity: sha512-SsPKf/CvQkZ+kABOsN01auAPHXh/2J20g0AWYF7fHR3Gw3TZLtdIxT1mk90Qzi76u/7sUYi3CTI+i3ZaTtXHRA==}
 
+  grapesjs-parser-postcss@1.0.3:
+    resolution: {integrity: sha512-lfiNRDGdYQT259fUudYD0Z9EKB0DeS9GdCjVqGuJo28rv0WPAdGlpFnvlYgNGurX38ZjIi8qnbEuSSDl8AXFSw==}
+
   grapesjs-preset-webpage@1.0.3:
     resolution: {integrity: sha512-C0VOKLAdhv0j1f81c6F2uk3JpJvxgXl5DeHUtDa5qGf/HZzaCmQxsvd8Re3Oh5Cah4uUCqoi9uB5FYx3hLND2w==}
 
@@ -5028,6 +5040,22 @@ packages:
     resolution: {integrity: sha512-uF813NG09JwNRRUfJ0zBomyTslSPM810dMj9LVvkQ7RAkLrQLzAlPU8Xh/3dIqZDo2bfd7tChbf2PtqLRARRJQ==}
     engines: {node: '>=16'}
     hasBin: true
+
+  workers-ai-provider@3.3.1:
+    resolution: {integrity: sha512-vArwnmiAxQQF1clsXJd9ADn1xK9YUZVxE4umaMhrdsxM2kucxP430LfaoH4rn0AfoqtnuH3bfRhW1ak0r1x/8A==}
+    peerDependencies:
+      '@ai-sdk/anthropic': ^3.0.0
+      '@ai-sdk/google': ^3.0.0
+      '@ai-sdk/openai': ^3.0.0
+      '@ai-sdk/provider': ^3.0.0
+      ai: ^6.0.0
+    peerDependenciesMeta:
+      '@ai-sdk/anthropic':
+        optional: true
+      '@ai-sdk/google':
+        optional: true
+      '@ai-sdk/openai':
+        optional: true
 
   wrangler@4.107.0:
     resolution: {integrity: sha512-fw69ThymNitZ0oIEBU2yNeq3kK59UKz/jyA3udwRrQIAIsxX57q5qLOpPTN7qc5t8n9pnUeofe0uxtMuhQZW8w==}
@@ -8032,6 +8060,8 @@ snapshots:
 
   grapesjs-blocks-basic@1.0.2: {}
 
+  grapesjs-parser-postcss@1.0.3: {}
+
   grapesjs-preset-webpage@1.0.3: {}
 
   grapesjs@0.22.16:
@@ -10324,6 +10354,14 @@ snapshots:
       '@cloudflare/workerd-linux-64': 1.20260701.1
       '@cloudflare/workerd-linux-arm64': 1.20260701.1
       '@cloudflare/workerd-windows-64': 1.20260701.1
+
+  workers-ai-provider@3.3.1(@ai-sdk/anthropic@3.0.79(zod@4.4.3))(@ai-sdk/openai@3.0.65(zod@4.4.3))(@ai-sdk/provider@3.0.10)(ai@6.0.191(zod@4.4.3)):
+    dependencies:
+      '@ai-sdk/provider': 3.0.10
+      ai: 6.0.191(zod@4.4.3)
+    optionalDependencies:
+      '@ai-sdk/anthropic': 3.0.79(zod@4.4.3)
+      '@ai-sdk/openai': 3.0.65(zod@4.4.3)
 
   wrangler@4.107.0(@cloudflare/workers-types@4.20260702.1):
     dependencies:

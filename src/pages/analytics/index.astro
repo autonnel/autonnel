@@ -8,12 +8,14 @@ import {
   loadMethodStats,
   loadTrafficSources,
   loadFunnelOptions,
+  loadSourceVisitorIds,
 } from '@/lib/dashboard/analytics-data';
 import {
   formatPercent,
   formatMoney,
   statusBadgeClasses,
   resolveAnalyticsWindow,
+  trafficSourceLabel,
 } from '@/lib/dashboard/analytics-helpers';
 import {
   computeDelta,
@@ -25,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { dsSelectClass, dsFieldClass } from '@/components/primitives/field-styles';
 import Stat from '@/components/primitives/ds/Stat';
 import { AnalystPanelLauncher } from '@/components/analytics';
+import AnalyticsTabs from '@/components/analytics/AnalyticsTabs.astro';
 
 const auth = await checkAuth(Astro);
 if (!auth.authenticated || !auth.user) {
@@ -38,6 +41,7 @@ if (!hasAccess) {
 
 const url = new URL(Astro.request.url);
 const funnelId = url.searchParams.get('funnel') || '';
+const sourceFilter = (url.searchParams.get('source') || '').trim().toUpperCase();
 
 const now = new Date();
 const siteTimezone = await getSiteTimezone().catch(() => undefined);
@@ -49,19 +53,38 @@ const timeWindow = resolveAnalyticsWindow({
   now,
 });
 
-const [funnelOptions, kpi, steps, methodStats, trafficSources] = await Promise.all([
+// Traffic sources stay unfiltered: they both populate the Source dropdown and get narrowed below.
+const [funnelOptions, trafficSources, sourceVisitorIds] = await Promise.all([
   loadFunnelOptions().catch(() => []),
-  loadAnalyticsKpi({ funnelId: funnelId || null, window: timeWindow }).catch(() => ({
+  loadTrafficSources({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
+  sourceFilter
+    ? loadSourceVisitorIds({
+        funnelId: funnelId || null,
+        source: sourceFilter,
+        start: timeWindow.prevStart,
+        end: timeWindow.end,
+      }).catch(() => [] as string[])
+    : Promise.resolve(null),
+]);
+
+const [kpi, steps, methodStats] = await Promise.all([
+  loadAnalyticsKpi({ funnelId: funnelId || null, window: timeWindow, visitorIds: sourceVisitorIds }).catch(() => ({
     visits24h: 0, visitsPrev24h: 0,
     conversionRate24h: 0, conversionRatePrev24h: 0,
     orders24h: 0, ordersPrev24h: 0,
     revenue24h: 0, revenuePrev24h: 0,
     visitsSparkline: [], ordersSparkline: [], revenueSparkline: [],
   })),
-  loadFunnelSteps({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
-  loadMethodStats({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
-  loadTrafficSources({ funnelId: funnelId || null, window: timeWindow }).catch(() => []),
+  loadFunnelSteps({ funnelId: funnelId || null, window: timeWindow, visitorIds: sourceVisitorIds }).catch(() => []),
+  loadMethodStats({ funnelId: funnelId || null, window: timeWindow, visitorIds: sourceVisitorIds }).catch(() => []),
 ]);
+
+const sourceOptions = trafficSources.map((t) => ({ value: t.source, label: t.label }));
+if (sourceFilter && !sourceOptions.some((o) => o.value === sourceFilter)) {
+  sourceOptions.unshift({ value: sourceFilter, label: trafficSourceLabel(sourceFilter) });
+}
+const trafficRows = sourceFilter ? trafficSources.filter((t) => t.source === sourceFilter) : trafficSources;
+const selectedSourceLabel = sourceFilter ? trafficSourceLabel(sourceFilter) : '';
 
 const presetRange = timeWindow.range === 'custom' ? '' : timeWindow.range;
 const customStart = timeWindow.range === 'custom' ? timeWindow.startDateStr : '';
@@ -90,6 +113,7 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
     funnelName={funnelId ? selectedFunnelName : undefined}
   />
   <div class="grid grid-cols-12 gap-5">
+    <AnalyticsTabs active="overview" query={url.search} />
     <div class="col-span-12 bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
       <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Stat
@@ -145,6 +169,19 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
             </select>
           </div>
           <div class="flex flex-col gap-1">
+            <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">Source</label>
+            <select
+              name="source"
+              onchange="this.form.submit()"
+              class={cn(dsSelectClass, "h-8 min-w-[150px]")}
+            >
+              <option value="">All sources</option>
+              {sourceOptions.map((o) => (
+                <option value={o.value} selected={sourceFilter === o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
             <label class="text-[11.5px] uppercase tracking-[0.02em] text-ds-muted">Quick range</label>
             <div class="inline-flex rounded-[7px] border border-ds-line overflow-hidden h-8">
               {(['24h', '7d', '30d'] as const).map((r, i) => (
@@ -185,7 +222,9 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
         </div>
         <div class="text-right">
           <div class="text-[12.5px] text-ds-muted">Showing</div>
-          <div class="text-[14px] font-semibold text-ds-ink mt-0.5">{selectedFunnelName} · {timeWindow.label}</div>
+          <div class="text-[14px] font-semibold text-ds-ink mt-0.5">
+            {selectedFunnelName}{sourceFilter && ` · ${selectedSourceLabel}`} · {timeWindow.label}
+          </div>
         </div>
       </form>
     </div>
@@ -195,7 +234,7 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
         <div>
           <div class="text-[14px] font-semibold text-ds-ink">Funnel steps</div>
           <div class="text-[12.5px] text-ds-muted mt-0.5">
-            Per-step page views · {timeWindow.label}
+            Per-step page views and custom events · {timeWindow.label}
           </div>
         </div>
         <a
@@ -228,6 +267,19 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
                     style={`width: ${Math.max(2, w)}%;`}
                   ></div>
                 </div>
+                {s.events.length > 0 && (
+                  <div class="mt-1.5 pl-3 border-l border-ds-line flex flex-col gap-1">
+                    {s.events.map((e) => (
+                      <div class="flex items-center justify-between text-[11.5px]">
+                        <span class="text-ds-muted truncate pr-2 min-w-0">{e.name}</span>
+                        <span class="font-ds-mono tabular text-ds-slate shrink-0">
+                          {formatNumber(e.visitors)}
+                          <span class="text-ds-muted ml-1.5">({e.sharePct.toFixed(1)}%)</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -286,8 +338,10 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
           First visits vs paid orders by source · {timeWindow.label}
         </div>
       </div>
-      {trafficSources.length === 0 ? (
-        <div class="px-6 py-12 text-center text-[13px] text-ds-muted">No traffic data yet.</div>
+      {trafficRows.length === 0 ? (
+        <div class="px-6 py-12 text-center text-[13px] text-ds-muted">
+          {sourceFilter ? `No ${selectedSourceLabel} traffic in this window.` : 'No traffic data yet.'}
+        </div>
       ) : (
         <div class="overflow-x-auto">
           <table class="w-full border-collapse">
@@ -301,7 +355,7 @@ const maxStepCount = steps.reduce((m, s) => Math.max(m, s.count), 0) || 1;
               </tr>
             </thead>
             <tbody>
-              {trafficSources.map((t) => {
+              {trafficRows.map((t) => {
                 const cvr = t.visits > 0 ? (t.orders / t.visits) * 100 : 0;
                 return (
                   <tr class="hover:bg-ds-surface2 transition-colors">

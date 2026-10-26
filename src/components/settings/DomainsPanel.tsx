@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { Button as DsButton, Card as DsCard, Badge as DsBadge } from '../primitives/ds';
-import { FormInput, AlertBox, Modal } from '../primitives';
+import { FormInput, AlertBox, Modal, Switch } from '../primitives';
 import { apiCall, ApiCallError } from '@/lib/api/client';
 import type { DomainDto } from '@/contracts/site-config';
 
@@ -9,14 +9,33 @@ type Domain = DomainDto;
 
 interface DomainsPanelProps {
   initialDomains: Domain[];
+  initialNoindex: boolean;
 }
 
-export default function DomainsPanel({ initialDomains }: DomainsPanelProps) {
+export default function DomainsPanel({ initialDomains, initialNoindex }: DomainsPanelProps) {
   const [domains, setDomains] = useState<Domain[]>(initialDomains);
+  const [noindex, setNoindex] = useState(initialNoindex);
+  const [savingNoindex, setSavingNoindex] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newDomain, setNewDomain] = useState('');
   const [adding, setAdding] = useState(false);
+
+  const handleToggleNoindex = async (next: boolean) => {
+    const previous = noindex;
+    setNoindex(next);
+    setSavingNoindex(true);
+    setError(null);
+    try {
+      const data = await apiCall('PUT /api/settings/search-indexing', { noindex: next });
+      setNoindex(data.noindex);
+    } catch (err) {
+      setNoindex(previous);
+      setError(err instanceof ApiCallError || err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSavingNoindex(false);
+    }
+  };
 
   const refresh = async () => {
     try {
@@ -71,6 +90,31 @@ export default function DomainsPanel({ initialDomains }: DomainsPanelProps) {
         <DsButton variant="primary" onClick={() => setShowAdd(true)} leftIcon={<Plus className="w-3.5 h-3.5" />}>Add domain</DsButton>
       </div>
       {error && <AlertBox type="error">{error}</AlertBox>}
+
+      <DsCard>
+        <div className="flex items-start justify-between gap-6">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="noindex" className="text-[13.5px] font-medium text-ds-ink">
+              Discourage search engines from indexing this site
+            </label>
+            <div className="text-[12.5px] text-ds-muted max-w-[560px]">
+              Serves a blanket <span className="font-ds-mono">Disallow: /</span> robots.txt on every
+              bound domain and marks storefront pages <span className="font-ds-mono">noindex</span>.
+              It is up to search engines to honor this. The admin dashboard is never indexed.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-0.5">
+            {savingNoindex && <Loader2 className="w-3.5 h-3.5 animate-spin text-ds-muted" />}
+            <Switch
+              id="noindex"
+              checked={noindex}
+              disabled={savingNoindex}
+              onCheckedChange={handleToggleNoindex}
+              aria-label="Discourage search engines from indexing this site"
+            />
+          </div>
+        </div>
+      </DsCard>
 
       <DsCard padded={false}>
         {domains.length === 0 ? (

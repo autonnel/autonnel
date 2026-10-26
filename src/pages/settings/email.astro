@@ -4,6 +4,8 @@ import { checkAuth } from '@/lib/auth/middleware';
 import { userHasFeature, FEATURES } from '@/lib/rbac';
 import EmailConfigPanel from '@/components/settings/EmailConfigPanel';
 import { getEmailKvConfigWithCredentials } from '@/lib/config/email';
+import { isCloudflareRuntime } from '@/lib/runtime/env';
+import { getBasePrisma } from '@/lib/db';
 
 const auth = await checkAuth(Astro);
 if (!auth.authenticated || !auth.user) {
@@ -16,17 +18,27 @@ if (!hasAccess) {
   return Astro.redirect('/');
 }
 
+const testRecipient =
+  auth.user.email ||
+  (await getBasePrisma().user.findUnique({ where: { id: auth.user.id }, select: { email: true } }).catch(() => null))?.email ||
+  '';
+
 const fullConfig = await getEmailKvConfigWithCredentials().catch(() => null);
 
 let initial: {
   hasConfig: boolean;
-  provider: 'SMTP' | 'RESEND';
+  provider: 'SMTP' | 'RESEND' | 'CLOUDFLARE';
   fromEmail: string;
   fromName: string;
   replyTo: string;
   isActive: boolean;
   smtpCreds: { host: string; port: number; username: string; secure: boolean };
+  cloudflare: { accountId: string };
+  smtpAvailable: boolean;
+  testRecipient: string;
 };
+
+const smtpAvailable = !isCloudflareRuntime();
 
 if (fullConfig) {
   const creds = fullConfig.credentials as unknown as Record<string, unknown>;
@@ -46,16 +58,24 @@ if (fullConfig) {
             secure: typeof creds.secure === 'boolean' ? creds.secure : false,
           }
         : { host: '', port: 587, username: '', secure: false },
+    cloudflare: {
+      accountId: fullConfig.provider === 'CLOUDFLARE' && typeof creds.accountId === 'string' ? creds.accountId : '',
+    },
+    smtpAvailable,
+    testRecipient,
   };
 } else {
   initial = {
     hasConfig: false,
-    provider: 'SMTP',
+    provider: smtpAvailable ? 'SMTP' : 'CLOUDFLARE',
     fromEmail: '',
     fromName: '',
     replyTo: '',
     isActive: true,
     smtpCreds: { host: '', port: 587, username: '', secure: false },
+    cloudflare: { accountId: '' },
+    smtpAvailable,
+    testRecipient,
   };
 }
 ---

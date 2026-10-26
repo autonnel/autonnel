@@ -4,6 +4,7 @@ import { checkAuth } from '@/lib/auth/middleware';
 import { userHasFeature, FEATURES } from '@/lib/rbac';
 import DomainsPanel from '@/components/settings/DomainsPanel';
 import { makeSiteConfig } from '@/composition/make-site-config';
+import { getSiteNoindex } from '@/lib/config/keys';
 
 const auth = await checkAuth(Astro);
 if (!auth.authenticated || !auth.user) {
@@ -17,6 +18,7 @@ if (!hasAccess) {
 }
 
 const rawDomains = await makeSiteConfig().domains.list().catch(() => []);
+const noindex = await getSiteNoindex().catch(() => false);
 const initialDomains = rawDomains.map((d) => ({
   id: d.id,
   domain: d.host,
@@ -29,6 +31,6 @@ const initialDomains = rawDomains.map((d) => ({
   activeNav="settings.domains"
 >
   <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5">
-    <DomainsPanel client:load initialDomains={initialDomains} />
+    <DomainsPanel client:load initialDomains={initialDomains} initialNoindex={noindex} />
   </div>
 </DashboardLayout>

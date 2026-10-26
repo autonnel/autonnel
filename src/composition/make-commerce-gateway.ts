@@ -20,6 +20,7 @@ import type {
 import type {
   CatalogProjectionStorePort,
   BackendCatalogPort,
+  BackendCurrencyRates,
 } from "@/modules/commerce-gateway/application/ports/outbound";
 import { getCurrentTenantId } from "@/lib/tenant/context";
 import { OutboxEventPublisher } from "@/modules/platform/infra/outbox-event-publisher";
@@ -102,6 +103,63 @@ export async function makeLiveStorefrontCatalogReadSide(
   const adapters = await loadAdapters(country);
   const store = new LiveCachedCatalogStore(adapters.catalog, `${getCurrentTenantId()}:${country}`);
   return assembleStorefrontCatalogReadPort({ store });
+}
+
+// Both ports share one live store, so a lookup that needs purchasable pricing and the grouped
+// product view (compare price, thumbnail) costs a single cached catalog read.
+export async function makeLiveCheckoutReadSides(countryCode: string): Promise<{
+  purchasables: CatalogReadPort;
+  storefront: StorefrontCatalogReadPort;
+}> {
+  const country = countryCode.toUpperCase();
+  const adapters = await loadAdapters(country);
+  const store = new LiveCachedCatalogStore(adapters.catalog, `${getCurrentTenantId()}:${country}`);
+  return {
+    purchasables: assembleCatalogReadPort({ store, backendCatalog: adapters.catalog }),
+    storefront: assembleStorefrontCatalogReadPort({ store }),
+  };
+}
+
+const CURRENCY_RATES_TTL_MS = 60_000;
+
+type RatesCacheEntry = { value: Promise<BackendCurrencyRates | null>; expiry: number };
+
+// Failures are never cached: a transient outage must not pin "no rates" for the TTL.
+export function createCurrencyRatesReader(
+  load: () => Promise<BackendCurrencyRates | null>,
+  ttlMs: number,
+  clock: () => number = Date.now,
+  cache: Map<string, RatesCacheEntry> = new Map(),
+): (tenantId: string) => Promise<BackendCurrencyRates | null> {
+  return (tenantId) => {
+    const now = clock();
+    for (const [key, entry] of cache) if (entry.expiry <= now) cache.delete(key);
+    const hit = cache.get(tenantId);
+    if (hit) return hit.value;
+    const entry: RatesCacheEntry = { value: load(), expiry: now + ttlMs };
+    cache.set(tenantId, entry);
+    entry.value.catch(() => {
+      if (cache.get(tenantId) === entry) cache.delete(tenantId);
+    });
+    return entry.value;
+  };
+}
+
+// Coupon amounts are converted into the cart currency with the backend's fixed rates. No backend,
+// or one without a rates concept (real Shopify, WooCommerce), answers null; a failed read throws.
+const currencyRatesByTenant = createCurrencyRatesReader(async () => {
+  let adapters;
+  try {
+    adapters = await loadAdapters();
+  } catch (err) {
+    if (err instanceof CommerceNotConfiguredError) return null;
+    throw err;
+  }
+  return (await adapters.catalog.currencyRates?.()) ?? null;
+}, CURRENCY_RATES_TTL_MS);
+
+export function readCurrencyRates(): Promise<BackendCurrencyRates | null> {
+  return currencyRatesByTenant(getCurrentTenantId());
 }
 
 export async function makeSubmitHandoffService(): Promise<SubmitHandoffService> {

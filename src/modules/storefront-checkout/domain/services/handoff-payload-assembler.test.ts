@@ -78,4 +78,12 @@ describe('HandoffPayloadAssembler', () => {
     });
     expect(payload.appliedDiscount).toBeUndefined();
   });
+
+  it('carries the buyer email for email contacts only', () => {
+    const base = { tenantId: 'default', saleRef: 'sale_1', capturedTotal: Money.of(2000, 'USD') };
+    expect(assembler.fromSnapshot({ ...base, snapshot: snapshot() }).customer.email).toBe('ada@example.com');
+    const phone = snapshot();
+    phone.buyer = { ...phone.buyer, channel: 'phone', normalized: '+15550001111' };
+    expect(assembler.fromSnapshot({ ...base, snapshot: phone }).customer.email).toBeUndefined();
+  });
 });

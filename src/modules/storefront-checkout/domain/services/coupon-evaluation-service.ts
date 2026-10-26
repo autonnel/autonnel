@@ -8,10 +8,25 @@ export interface CouponDefinition {
   minSubtotalMinor: number;
 }
 
+export interface CouponMinimum {
+  amountMinor: number;
+  currencyCode: string;
+}
+
+export class SubtotalBelowMinimumError extends Error {
+  readonly minOrder: CouponMinimum;
+
+  constructor(amountMinor: number, currencyCode: string) {
+    super('Subtotal below coupon minimum');
+    this.name = 'SubtotalBelowMinimumError';
+    this.minOrder = { amountMinor, currencyCode: currencyCode.toUpperCase() };
+  }
+}
+
 export class CouponEvaluationService {
   evaluate(def: CouponDefinition, subtotal: Money): AppliedCoupon {
     if (subtotal.amountMinor < def.minSubtotalMinor) {
-      throw new Error('Subtotal below coupon minimum');
+      throw new SubtotalBelowMinimumError(def.minSubtotalMinor, subtotal.currencyCode);
     }
     const raw =
       def.kind === 'percentage'

@@ -3,6 +3,7 @@
 // Build-time injected by Vite `define` in the autonnel integration / astro configs.
 // Undefined when the build host has no git checkout.
 declare const __AUTONNEL_COMMIT__: string | undefined;
+declare const __AUTONNEL_WHITE_LABEL__: boolean | undefined;
 
 declare module 'grapesjs-preset-webpage';
 declare module 'grapesjs-blocks-basic';
@@ -20,6 +21,7 @@ declare namespace App {
 interface Env {
   CACHE_KV: KVNamespace;
   HYPERDRIVE: Hyperdrive;
+  EMAIL?: SendEmail;
 
   [key: string]: unknown;
 }

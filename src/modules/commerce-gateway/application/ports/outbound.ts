@@ -12,6 +12,13 @@ export interface CatalogPage {
   nextCursor: SyncCursor | null;
 }
 
+export interface BackendCurrencyRates {
+  baseCurrency: string;
+  rates: Record<string, number>;
+  // Every currency the backend sells in, rated or manual-only. Absent on backends that predate it.
+  currencies?: string[];
+}
+
 export interface BackendCatalogPort {
   listProducts(cursor: SyncCursor, pageSize: number): Promise<CatalogPage>;
   getProduct(productRef: ExternalRef): Promise<CatalogProductView | null>;
@@ -19,6 +26,8 @@ export interface BackendCatalogPort {
   contextualPrices(productRef: ExternalRef, market: Market): Promise<CatalogProductView | null>;
   getInventory(variantRefs: ExternalRef[]): Promise<Map<string, number | null>>;
   describeCapabilities(): CapabilityProfile;
+  // Fixed rates (units of each currency per 1 base unit); null when the backend has none.
+  currencyRates?(): Promise<BackendCurrencyRates | null>;
 }
 
 export interface BackendOrderCreateResult {

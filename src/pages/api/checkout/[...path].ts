@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { makeStorefrontCheckout } from '@/composition/make-storefront-checkout';
-import { storefrontCheckoutDepsFromLocals } from '@/composition/storefront-runtime';
+import { CHECKOUT_SESSION_COOKIE, storefrontCheckoutDepsFromLocals } from '@/composition/storefront-runtime';
+import { checkoutRequestInfo } from '@/composition/payment-request-context';
 import { handleCheckoutRequest } from '@/modules/storefront-checkout/infra/checkout-api-adapter';
 import { resolveCheckoutLocale } from '@/modules/storefront-checkout/application/resolve-locale';
 import { makeAcquisitionAds } from '@/composition/make-acquisition-ads';
@@ -11,7 +12,7 @@ export const prerender = false;
 
 const logger = createLogger('CheckoutApiRoute');
 
-const COOKIE = 'an_checkout_session';
+const COOKIE = CHECKOUT_SESSION_COOKIE;
 const ATTRIBUTION_TTL_SEC = 60 * 60 * 24 * 30;
 
 function readCookie(request: Request, name: string): string | null {
@@ -37,6 +38,10 @@ async function bridgeAttribution(context: APIContext, anid: string, sessionId: s
   await ads.attributionStore.put({ key: `attr:${sessionId}`, touch, ttlSec: ATTRIBUTION_TTL_SEC });
 }
 
+function clientAddressOf(context: APIContext): string | undefined {
+  try { return context.clientAddress; } catch { return undefined; }
+}
+
 // Unauthenticated shopper endpoint: the signed session cookie is the only credential.
 export async function POST(context: APIContext): Promise<Response> {
   const action = context.params['path'] ?? '';
@@ -56,7 +61,8 @@ export async function POST(context: APIContext): Promise<Response> {
   // fallback copy — a total checkout outage that looks like ordinary shopper friction.
   let surface: ReturnType<typeof makeStorefrontCheckout>;
   try {
-    surface = makeStorefrontCheckout(storefrontCheckoutDepsFromLocals(context.locals));
+    const requestInfo = action === 'submit' ? checkoutRequestInfo(context.request, clientAddressOf(context), body) : undefined;
+    surface = makeStorefrontCheckout(storefrontCheckoutDepsFromLocals(context.locals, requestInfo));
   } catch (err) {
     logger.error('Checkout dependencies unavailable', { action, error: err });
     return new Response(

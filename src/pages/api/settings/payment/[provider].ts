@@ -8,14 +8,13 @@ import {
   type PaymentProviderPublic,
 } from '@/lib/config/payment';
 import type { PaymentConfigWire } from '@/contracts/settings';
-
-const VALID_PROVIDERS = ['paypal', 'stripe'] as const;
+import { getProviderByDbKey } from '@/lib/adapters/payment/registry';
+import '@/lib/adapters/payment/providers';
 
 function normalizeProvider(raw: string | undefined): PaymentProvider {
-  if (!raw) throw new ApiError(400, 'Invalid provider');
-  const lower = raw.toLowerCase();
-  if (!VALID_PROVIDERS.includes(lower as (typeof VALID_PROVIDERS)[number])) throw new ApiError(400, 'Invalid provider');
-  return lower.toUpperCase() as PaymentProvider;
+  const slug = (raw ?? '').toUpperCase();
+  if (!slug || !getProviderByDbKey(slug)) throw new ApiError(400, 'Invalid provider');
+  return slug;
 }
 
 function toWire(config: PaymentProviderPublic): PaymentConfigWire {

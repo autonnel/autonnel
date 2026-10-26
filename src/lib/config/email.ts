@@ -1,5 +1,5 @@
 // provider is a local union persisted in the AppConfig KV (`email.config`)
-export type EmailProvider = 'SMTP' | 'RESEND';
+export type EmailProvider = 'SMTP' | 'RESEND' | 'CLOUDFLARE';
 import { getConfig, setConfig, deleteConfig } from './get-config';
 import {
   encryptCredentials,
@@ -20,7 +20,13 @@ export interface ResendCredentials {
   apiKey: string;
 }
 
-export type EmailCredentials = SmtpCredentials | ResendCredentials;
+// Empty credentials mean the Workers `send_email` binding; accountId + apiToken select the REST API.
+export interface CloudflareEmailCredentials {
+  accountId?: string;
+  apiToken?: string;
+}
+
+export type EmailCredentials = SmtpCredentials | ResendCredentials | CloudflareEmailCredentials;
 
 export interface EmailKvEntry {
   id: string;
@@ -64,7 +70,7 @@ export interface UpsertEmailConfigInput {
 export interface UpdateEmailConfigInput {
   provider?: EmailProvider;
   name?: string;
-  credentials?: Partial<SmtpCredentials> | Partial<ResendCredentials>;
+  credentials?: Partial<SmtpCredentials> | Partial<ResendCredentials> | CloudflareEmailCredentials;
   fromEmail?: string;
   fromName?: string | null;
   replyTo?: string | null;

@@ -6,6 +6,7 @@ import '@/lib/llm';
 import { getTextProvider, getImageProvider, getVideoProvider } from '@/lib/llm/registry';
 import { UnknownProviderError } from '@/lib/llm/errors';
 import { pollJob } from '@/lib/llm/poll';
+import { usesWorkersAiBinding, validateWorkersAiBaseUrl, WORKERS_AI_PROVIDER } from '@/lib/llm/workers-ai-config';
 import type { LlmTestInput, LlmTestResult } from '@/contracts/settings';
 
 const logger = createLogger('LlmTestAPI');
@@ -36,7 +37,13 @@ async function resolve(body: LlmTestInput | null): Promise<ResolvedProbe> {
   if (typeof body.provider !== 'string' || !body.provider.trim()) throw new ApiError(400, 'provider required');
   if (typeof body.name !== 'string' || !body.name.trim()) throw new ApiError(400, 'name required');
   if (typeof body.modelId !== 'string' || !body.modelId.trim()) throw new ApiError(400, 'modelId required');
-  if (typeof body.baseUrl !== 'string' || !body.baseUrl.trim()) throw new ApiError(400, 'baseUrl required');
+  if (typeof body.baseUrl !== 'string') throw new ApiError(400, 'baseUrl must be string');
+  const bindingMode = typeof body.provider === 'string' && usesWorkersAiBinding(body.provider.trim(), body.baseUrl);
+  if (!bindingMode && !body.baseUrl.trim()) throw new ApiError(400, 'baseUrl required');
+  if (typeof body.provider === 'string' && body.provider.trim() === WORKERS_AI_PROVIDER) {
+    const invalid = validateWorkersAiBaseUrl(body.baseUrl);
+    if (invalid) throw new ApiError(400, invalid);
+  }
   if (typeof body.apiKey !== 'string') throw new ApiError(400, 'apiKey must be string');
   if (body.options !== undefined && (typeof body.options !== 'object' || body.options === null || Array.isArray(body.options))) {
     throw new ApiError(400, 'options must be an object when provided');
@@ -46,8 +53,8 @@ async function resolve(body: LlmTestInput | null): Promise<ResolvedProbe> {
   const modelId = body.modelId.trim();
   const baseUrl = normalizeBaseUrl(body.baseUrl);
 
-  let apiKey = body.apiKey;
-  if (apiKey === '') {
+  let apiKey = bindingMode ? '' : body.apiKey;
+  if (!bindingMode && apiKey === '') {
     // A stored key is only ever replayed to the destination it was stored with. Reusing it for a
     // caller-chosen provider/baseUrl would exfiltrate a credential the settings API masks on read.
     const existing = (await listLlmModels()).find((r) => r.type === body.type && r.name === body.name);

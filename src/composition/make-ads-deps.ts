@@ -7,6 +7,7 @@ import { getConfig } from '../lib/config/get-config';
 import { getCurrentTenantId } from '../lib/tenant/context';
 import { issueOAuthState, consumeOAuthState } from '../lib/auth/oauth-state';
 import { getPrincipal } from '../modules/identity/application/principal-resolution';
+import { getAdsOAuthApp } from '../lib/config/ads-apps';
 import type { AdsDeps } from './make-acquisition-ads';
 
 type Locals = APIContext['locals'];
@@ -23,6 +24,13 @@ function requireOwner(): { tenantId: string; userId: string } {
   return { tenantId: getCurrentTenantId(), userId: principal.userId };
 }
 
+// Named export (rather than inlined into createAdsDepsForRequest's returned object) so tests can
+// call it directly against make-acquisition-ads.ts's oauthFor and assert both resolve the same KV
+// key for a given platform alias -- the exact regression this shared canonicalAdsPlatform mapping
+// exists to prevent.
+export const clientIdFor = async (platform: string): Promise<string> =>
+  (await getAdsOAuthApp(platform))?.clientId ?? '';
+
 export async function createAdsDepsForRequest(locals?: Locals): Promise<AdsDeps> {
   const db = getTenantPrisma();
   const base = getBasePrisma();
@@ -36,6 +44,11 @@ export async function createAdsDepsForRequest(locals?: Locals): Promise<AdsDeps>
       eventMappingProfile: db.eventMappingProfile,
       adAttributionTouch: db.adAttributionTouch,
       funnelAdConnection: db.funnelAdConnection,
+      adCreative: db.adCreative,
+      adDailyMetric: db.adDailyMetric,
+      adSyncRun: db.adSyncRun,
+      page: db.page,
+      funnel: db.funnel,
     },
     config: { getConfig: (key, envFallback) => getConfig(key, envFallback) as Promise<string | undefined> },
     jobQueue: {
@@ -64,9 +77,8 @@ export async function createAdsDepsForRequest(locals?: Locals): Promise<AdsDeps>
     decodeState: (state: string) => consumeOAuthState(state, requireOwner()),
     encodeState: (input: { platform: string }) =>
       issueOAuthState({ platform: input.platform, ...requireOwner() }),
-    clientIdFor: async (platform: string) => {
-      const key = `ads.${platform.toLowerCase()}.client_id`;
-      return (await getConfig(key)) ?? '';
-    },
+    // Shares canonicalAdsPlatform/ADS_APP_KEYS with oauthFor's credential lookup, so a 'FACEBOOK'
+    // connection and a 'META' adapter cannot read different KV keys.
+    clientIdFor,
   };
 }

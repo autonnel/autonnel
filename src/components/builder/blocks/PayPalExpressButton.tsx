@@ -285,7 +285,7 @@ export function PayPalExpressButton(props: PayPalExpressButtonProps) {
         )}
         <img
           src="/images/cc-payments.svg"
-          alt="Credit card payments"
+          alt={t('payment.creditCardPayments')}
           style={{ maxWidth: 300, display: 'block', margin: '16px auto 0' }}
         />
         <style>{SPIN_KEYFRAMES}</style>
@@ -359,8 +359,8 @@ export function PayPalExpressButton(props: PayPalExpressButtonProps) {
           color: '#6b7280',
         }}
       >
-        <TrustBadge icon={lockIcon} label="Secure" />
-        <TrustBadge icon={shieldIcon} label="Buyer Protection" />
+        <TrustBadge icon={lockIcon} label={t('orderSummary.secure')} />
+        <TrustBadge icon={shieldIcon} label={t('payment.buyerProtection')} />
       </div>
       {showDivider && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 24 }}>

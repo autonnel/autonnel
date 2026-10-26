@@ -17,7 +17,7 @@ vi.mock("@/lib/services/site-upload", () => ({
   buildUrlFromContext: (key: string) => `https://static.test/${key}`,
 }));
 
-import { migrateAssets, type MigrateAssetsContext } from "./asset-migrator";
+import { absolutizeCssUrls, migrateAssets, type MigrateAssetsContext } from "./asset-migrator";
 
 const ctx: MigrateAssetsContext = {
   baseFolder: "imports",
@@ -77,5 +77,41 @@ describe("migrateAssets", () => {
     expect(out).toContain(" 1x");
     expect(out).toContain(" 2x");
     expect(out).toContain("https://static.test/cdn/");
+  });
+
+  it("drops SRI attributes from rehosted scripts and stylesheets", async () => {
+    const html =
+      '<link rel="stylesheet" href="https://cdn.test/b.css" integrity="sha512-x" crossorigin="anonymous">' +
+      '<script src="https://cdn.test/j.js" integrity="sha512-y" crossorigin="anonymous"></script>';
+    const { html: out } = await migrateAssets(html, "https://src.test/page", ctx);
+    expect(out).not.toContain("integrity");
+    expect(out).not.toContain("crossorigin");
+  });
+
+  it("keeps SRI attributes when the upload fails", async () => {
+    uploadFromUrl.mockRejectedValueOnce(new Error("boom"));
+    const html = '<script src="https://cdn.test/j.js" integrity="sha512-y" crossorigin="anonymous"></script>';
+    const { html: out } = await migrateAssets(html, "https://src.test/page", ctx);
+    expect(out).toContain('integrity="sha512-y"');
+  });
+});
+
+describe("absolutizeCssUrls", () => {
+  const base = "https://cdn.test/fa/4.7.0/css/font-awesome.min.css";
+
+  it("resolves relative url() and @import against the stylesheet", () => {
+    const css =
+      "@import 'theme.css';@font-face{src:url('../fonts/fa.woff2?v=4.7.0') format('woff2'),url(../fonts/fa.ttf)}" +
+      '.a{background:url("/img/bg.png")}';
+    expect(absolutizeCssUrls(css, base)).toBe(
+      "@import 'https://cdn.test/fa/4.7.0/css/theme.css';" +
+        "@font-face{src:url('https://cdn.test/fa/4.7.0/fonts/fa.woff2?v=4.7.0') format('woff2'),url(https://cdn.test/fa/4.7.0/fonts/fa.ttf)}" +
+        '.a{background:url("https://cdn.test/img/bg.png")}',
+    );
+  });
+
+  it("leaves absolute, data and fragment urls alone", () => {
+    const css = "a{b:url(https://x.test/a.png);c:url(data:image/png;base64,AA==);d:url(#clip)}";
+    expect(absolutizeCssUrls(css, base)).toBe(css);
   });
 });

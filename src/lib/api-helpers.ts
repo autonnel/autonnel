@@ -76,6 +76,36 @@ export function withAuth(feature: FeatureId, handler: AuthenticatedHandler): API
   };
 }
 
+// Same as withAuth, but authorized by any one of several features. Use when an endpoint is a
+// legitimate entry point from more than one surface with its own feature gate (e.g. an ads sync
+// endpoint reachable both from the analytics dashboard and from the ads settings page).
+export function withAuthAnyOf(features: FeatureId[], handler: AuthenticatedHandler): APIRoute {
+  return async (context) => {
+    const auth = await checkAuth(context);
+    const user = auth.user;
+    if (!auth.authenticated || !user) {
+      return jsonError('Unauthorized', 401);
+    }
+
+    let authorized = false;
+    for (const feature of features) {
+      if (await isAuthorizedFor(user, feature)) {
+        authorized = true;
+        break;
+      }
+    }
+    if (!authorized) {
+      return jsonError('Forbidden', 403);
+    }
+
+    try {
+      return await handler(context, { user, auth });
+    } catch (error) {
+      return failureToResponse(error, 'API handler error');
+    }
+  };
+}
+
 function cronKeyMatches(context: APIContext): boolean {
   const expected = readEnv('CRON_KEY');
   if (!expected) {

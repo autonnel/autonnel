@@ -46,6 +46,7 @@ export const FEATURES = {
   SETTINGS_AI_CONVERSION_ANALYSIS: 'settings.ai-conversion-analysis',
   SETTINGS_MAINTENANCE: 'settings.maintenance',
   SETTINGS_BROWSER_RENDERING: 'settings.browser-rendering',
+  SETTINGS_ADS: 'settings.ads',
 } as const;
 
 export type FeatureId = (typeof FEATURES)[keyof typeof FEATURES];
@@ -95,6 +96,7 @@ export const FEATURE_LABELS: Record<FeatureId, string> = {
   [FEATURES.SETTINGS_AI_CONVERSION_ANALYSIS]: 'Settings: AI Conversion Analysis',
   [FEATURES.SETTINGS_MAINTENANCE]: 'Settings: Maintenance',
   [FEATURES.SETTINGS_BROWSER_RENDERING]: 'Settings: Browser Rendering',
+  [FEATURES.SETTINGS_ADS]: 'Settings: Ads',
 };
 
 export const FEATURE_DESCRIPTIONS: Record<FeatureId, string> = {
@@ -142,6 +144,7 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureId, string> = {
   [FEATURES.SETTINGS_AI_CONVERSION_ANALYSIS]: 'Configure AI conversion analysis prompt and frequency',
   [FEATURES.SETTINGS_MAINTENANCE]: 'Toggle storefront maintenance mode and set bypass password',
   [FEATURES.SETTINGS_BROWSER_RENDERING]: 'Configure Cloudflare Browser Rendering for higher-fidelity page imports',
+  [FEATURES.SETTINGS_ADS]: 'Configure ad platform OAuth apps and connected ad accounts',
 };
 
 export const NAV_FEATURE_MAP: Record<string, FeatureId> = {

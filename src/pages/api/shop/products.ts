@@ -1,6 +1,7 @@
 import pLimit from 'p-limit';
-import { defineRoute } from '@/lib/api/define-route';
+import { ApiError, defineRoute } from '@/lib/api/define-route';
 import { makeLiveStorefrontCatalogReadSide } from '@/composition/make-commerce-gateway';
+import { marketForCurrency, UnsupportedCurrencyError } from '@/composition/checkout-market';
 import { createLogger } from '@/lib/logger';
 
 // A public URL must not amplify into unbounded outbound calls against the commerce provider.
@@ -45,6 +46,15 @@ function resolveCurrency(regionId: string | null, skipPricing: boolean): string 
   return regionId.toUpperCase();
 }
 
+function countryForCurrency(currencyCode: string): string {
+  try {
+    return marketForCurrency(currencyCode).countryCode;
+  } catch (error) {
+    if (error instanceof UnsupportedCurrencyError) throw new ApiError(400, error.message);
+    throw error;
+  }
+}
+
 export const GET = defineRoute(
   'GET /api/shop/products',
   {},
@@ -61,7 +71,7 @@ export const GET = defineRoute(
     const offset = Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
 
     const currencyCode = resolveCurrency(regionId, skipPricing);
-    const countryCode = countryFromRequest(request);
+    const countryCode = currencyCode ? countryForCurrency(currencyCode) : countryFromRequest(request);
     const fallbackCurrency = currencyCode ?? getDefaultCurrencyCode();
     const priceQuery = { currencyCode, countryCode };
 

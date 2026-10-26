@@ -1,0 +1,22 @@
+---
+// Admin API calls answer 401 once the session is gone; send the user back to sign in instead of
+// surfacing a bare error inside whatever dialog made the call.
+---
+
+<script is:inline>
+  (() => {
+    const nativeFetch = window.fetch.bind(window);
+    let redirecting = false;
+    window.fetch = async (input, init) => {
+      const res = await nativeFetch(input, init);
+      if (res.status !== 401 || redirecting) return res;
+      const raw = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
+      const url = new URL(raw, window.location.href);
+      if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+        redirecting = true;
+        window.location.assign('/login');
+      }
+      return res;
+    };
+  })();
+</script>

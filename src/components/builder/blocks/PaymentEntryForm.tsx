@@ -5,6 +5,8 @@ import { PaymentMethodTabs } from './payment/PaymentMethodTabs';
 import { PayPalButton } from './payment/PayPalButton';
 import { PayPalCardForm } from './payment/PayPalCardForm';
 import { StripeCardForm } from './payment/StripeCardForm';
+import { RedirectPayButton } from './payment/RedirectPayButton';
+import { redirectProviders, type RedirectProviderOption } from './payment/checkout-buyer-form';
 import { SectionTitle, titleIconField } from '../SectionTitle';
 import { createTextField, scaledFontSize } from '../TextField';
 import { useTranslation } from '../LanguageContext';
@@ -16,13 +18,14 @@ interface ConfigState {
   hasPayPal: boolean;
   hasPayPalCardFields: boolean;
   hasStripe: boolean;
+  redirectOptions: RedirectProviderOption[];
 }
 
 interface RenderProps extends PaymentEntryFormProps {
   puck?: { isEditing?: boolean };
 }
 
-const METHOD_TRACKING_NAME: Record<PaymentMethodType, string> = {
+const METHOD_TRACKING_NAME: Record<string, string> = {
   paypal: 'paypal',
   'paypal-card': 'paypal_cc',
   card: 'stripe',
@@ -51,6 +54,7 @@ export function PaymentEntryForm({
     hasPayPal: false,
     hasPayPalCardFields: false,
     hasStripe: false,
+    redirectOptions: [],
   });
 
   useEffect(() => {
@@ -59,6 +63,7 @@ export function PaymentEntryForm({
         hasPayPal: showPayPalOption,
         hasPayPalCardFields: false,
         hasStripe: false,
+        redirectOptions: [],
       });
       setConfigLoading(false);
       return;
@@ -75,15 +80,22 @@ export function PaymentEntryForm({
         cfg?.providers?.card?.publishableKey || cfg?.card?.publishableKey
       );
 
-      if (hasPayPal || hasPayPalCardFields || hasStripe) {
-        if (hasStripe) {
+      const redirectOptions = redirectProviders(cfg);
+
+      if (hasPayPal || hasPayPalCardFields || hasStripe || redirectOptions.length > 0) {
+        const paymentFailed = new URLSearchParams(window.location.search).get('payment_error') === '1';
+        if (paymentFailed && redirectOptions.length > 0) {
+          setPaymentMethod(redirectOptions[0]!.method);
+        } else if (hasStripe) {
           setPaymentMethod('card');
         } else if (hasPayPalCardFields) {
           setPaymentMethod('paypal-card');
         } else if (hasPayPal) {
           setPaymentMethod('paypal');
+        } else {
+          setPaymentMethod(redirectOptions[0]!.method);
         }
-        setConfigState({ hasPayPal, hasPayPalCardFields, hasStripe });
+        setConfigState({ hasPayPal, hasPayPalCardFields, hasStripe, redirectOptions });
         setConfigLoading(false);
         return true;
       }
@@ -108,21 +120,21 @@ export function PaymentEntryForm({
     };
   }, [isEditorMode, showPayPalOption]);
 
-  const { hasPayPal, hasPayPalCardFields, hasStripe } = configState;
-  const hasAnyPaymentMethod = hasPayPal || hasPayPalCardFields || hasStripe;
+  const { hasPayPal, hasPayPalCardFields, hasStripe, redirectOptions } = configState;
+  const hasAnyPaymentMethod = hasPayPal || hasPayPalCardFields || hasStripe || redirectOptions.length > 0;
 
   const handleProcessingChange = useCallback((value: boolean) => {
     setProcessing(value);
   }, []);
 
-  const lastTrackedMethod = useRef<PaymentMethodType | null>(null);
+  const lastTrackedMethod = useRef<string | null>(null);
   const handleMethodChange = useCallback((method: PaymentMethodType) => {
     setPaymentMethod(method);
     if (isEditorMode || lastTrackedMethod.current === method) return;
     lastTrackedMethod.current = method;
     window.dispatchEvent(
       new CustomEvent('autonnel:paymentMethodSelected', {
-        detail: { method: METHOD_TRACKING_NAME[method] },
+        detail: { method: METHOD_TRACKING_NAME[method] ?? method },
       }),
     );
   }, [isEditorMode]);
@@ -205,6 +217,7 @@ export function PaymentEntryForm({
             showPayPal={showPayPalTab}
             showPayPalCard={showPayPalCardTab}
             showCreditCard={showStripeTab}
+            redirectOptions={redirectOptions}
             borderColor={borderColor}
           />
 
@@ -227,6 +240,16 @@ export function PaymentEntryForm({
               onProcessingChange={handleProcessingChange}
             />
           )}
+
+          {redirectOptions.filter((o) => o.method === paymentMethod).map((o) => (
+            <RedirectPayButton
+              key={o.method}
+              provider={o.provider}
+              buttonColor={buttonColor}
+              buttonText={buttonText}
+              onProcessingChange={handleProcessingChange}
+            />
+          ))}
 
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 

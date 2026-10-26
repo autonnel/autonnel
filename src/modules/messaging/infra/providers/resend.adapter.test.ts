@@ -25,6 +25,12 @@ describe('ResendEmailAdapter', () => {
     await expect(adapter.send(sendInput)).rejects.toMatchObject({ httpStatus: 503 });
   });
 
+  it('surfaces the Resend error message so a failed test send is actionable', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ statusCode: 403, message: 'The example.com domain is not verified.' }), { status: 403 }));
+    const adapter = new ResendEmailAdapter({ apiKey: 'rk_test' });
+    await expect(adapter.send(sendInput)).rejects.toThrow('resend send failed: 403 The example.com domain is not verified.');
+  });
+
   it('parseWebhook normalizes a delivered event', async () => {
     const adapter = new ResendEmailAdapter({ apiKey: 'rk_test' });
     const events = await adapter.parseWebhook({ type: 'email.delivered', data: { email_id: 'resend-123', to: ['b@x.com'] }, created_at: '2026-06-04T00:00:00Z' });

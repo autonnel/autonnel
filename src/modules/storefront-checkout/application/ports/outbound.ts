@@ -6,7 +6,7 @@ import type { HandoffPayload } from '../../domain/services/handoff-payload-assem
 import type { CheckoutSnapshot } from '../checkout-snapshot';
 
 export type CaptureMethod = 'automatic' | 'manual';
-export type PaymentProviderChoice = 'STRIPE' | 'PAYPAL';
+export type PaymentProviderChoice = string;
 
 export interface SerializedSession {
   raw: Record<string, unknown>;
@@ -62,6 +62,8 @@ export interface FunnelStepSnapshot {
   version: number;
   stepSlugs: string[];
   pageHtmlByStep: Record<string, string>;
+  // Page root `currency` per step and page slug; '' means the store default.
+  pageCurrencyByStep: Record<string, string>;
   entryStep: string;
 }
 
@@ -88,8 +90,9 @@ export interface AppConfigPort {
 
 // Re-checks an already-applied coupon against the authoritative record at submit time (active,
 // not expired, not over maxUsages) so a stale session snapshot can't redeem an exhausted coupon.
+// subtotalMinor is in currencyCode (the cart currency); the guard converts it to the coupon's base.
 export interface CouponRedemptionGuardPort {
-  assertRedeemable(code: string, subtotalMinor: number, now: Date): Promise<void>;
+  assertRedeemable(code: string, subtotalMinor: number, currencyCode: string, now: Date): Promise<void>;
 }
 
 export interface HashIdentityPort {

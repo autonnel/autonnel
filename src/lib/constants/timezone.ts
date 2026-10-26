@@ -30,6 +30,48 @@ export function timezoneLabel(value: string | null | undefined): string {
   return TIMEZONE_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
+// Minutes east of UTC for `timeZone` at the given instant. Needed because the Etc/GMT ids carry
+// an INVERTED sign by POSIX convention (Etc/GMT+8 is UTC-8), so comparing zone ids as strings both
+// misreads them and calls two zones different when they are the same clock.
+export function timezoneOffsetMinutes(timeZone: string, at: Date): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(at);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+    const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+    // The formatted parts carry no milliseconds, so drop them from the reference instant too.
+    return Math.round((asUtc - Math.floor(at.getTime() / 1000) * 1000) / 60000);
+  } catch {
+    return null;
+  }
+}
+
+function offsetLabel(minutes: number): string {
+  const sign = minutes < 0 ? '-' : '+';
+  const abs = Math.abs(minutes);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return m === 0 ? `UTC${sign}${h}` : `UTC${sign}${h}:${String(m).padStart(2, '0')}`;
+}
+
+// Operator-facing name for a zone. The picker's own wording wins for the fixed-offset ids it
+// offers; a real IANA zone keeps its name and gains the offset it is actually on, because
+// "America/Los_Angeles" alone does not tell an operator whether it is UTC-7 or UTC-8 today.
+export function timezoneDisplay(value: string, at: Date = new Date()): string {
+  const known = TIMEZONE_OPTIONS.find((o) => o.value === value);
+  if (known) return known.label;
+  const offset = timezoneOffsetMinutes(value, at);
+  return offset == null ? value : `${value} (${offsetLabel(offset)})`;
+}
+
 // Absolute "YYYY-MM-DD HH:MM:SS" rendered in the given IANA/Etc timezone. Used wherever an admin-facing
 // timestamp must follow the site-wide default timezone instead of UTC.
 export function formatDateTimeInTimezone(

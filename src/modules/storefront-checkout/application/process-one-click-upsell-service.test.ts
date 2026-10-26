@@ -7,11 +7,12 @@ import { BuyerContact, Address } from '../domain/value-objects/buyer-contact';
 import { ProcessOneClickUpsellService } from './process-one-click-upsell-service';
 import type { CommerceCatalogReaderPort, PurchasableView } from './ports/outbound';
 
-function session() {
+function session(market = { countryCode: 'US', currencyCode: 'USD' }) {
   const s = FunnelSession.start({
     sessionId: 'sess_1', tenantId: 'default', snapshotRef: FunnelSnapshotRef.of('fn_1', 1),
     stepSlugs: [StepSlug.of('checkout'), StepSlug.of('upsell-1')],
     attribution: AttributionSnapshot.empty('sess_1'), entryStep: StepSlug.of('checkout'),
+    market,
   });
   const handle = ContactHandle.fromEmail('ada@example.com', (n) => `h:${n}`);
   // Mirror the live main-checkout submit: only attachBuyer is called (never captureContact),
@@ -41,7 +42,6 @@ describe('ProcessOneClickUpsellService', () => {
       publisher: { publish: vi.fn(async (events: any[]) => { published.push(...events); }) },
       newSaleId: () => 'sale_upsell_1',
       clock: () => new Date('2026-06-04T00:00:00Z'),
-      market: { countryCode: 'GB', currencyCode: 'USD' },
     };
     const svc = new ProcessOneClickUpsellService(deps as any);
 
@@ -68,7 +68,6 @@ describe('ProcessOneClickUpsellService', () => {
       publisher: { publish: vi.fn(async () => {}) },
       newSaleId: () => 'sale_upsell_1',
       clock: () => new Date(),
-      market: { countryCode: 'GB', currencyCode: 'USD' },
     };
     const svc = new ProcessOneClickUpsellService(deps as any);
     await expect(svc.execute('sess_1', { variantExternalId: 'gid://v/9', quantity: 1 })).rejects.toThrow(/sellable/i);
@@ -78,6 +77,7 @@ describe('ProcessOneClickUpsellService', () => {
     const bare = FunnelSession.start({
       sessionId: 'sess_2', tenantId: 'default', snapshotRef: FunnelSnapshotRef.of('fn_1', 1),
       stepSlugs: [StepSlug.of('checkout')], attribution: AttributionSnapshot.empty('sess_2'), entryStep: StepSlug.of('checkout'),
+      market: { countryCode: 'US', currencyCode: 'USD' },
     });
     const deps = {
       sessions: { load: vi.fn(async () => bare), store: vi.fn(async () => {}), signCookieValue: () => '', verifyCookieValue: () => null },
@@ -86,9 +86,24 @@ describe('ProcessOneClickUpsellService', () => {
       publisher: { publish: vi.fn(async () => {}) },
       newSaleId: () => 'sale_upsell_1',
       clock: () => new Date(),
-      market: { countryCode: 'GB', currencyCode: 'USD' },
     };
     const svc = new ProcessOneClickUpsellService(deps as any);
     await expect(svc.execute('sess_2', { variantExternalId: 'gid://v/9', quantity: 1 })).rejects.toThrow(/buyer/i);
+  });
+
+  it('upsell uses session market', async () => {
+    const s = session({ countryCode: 'DE', currencyCode: 'EUR' });
+    const resolve = vi.fn(async () => [{ variantExternalId: 'gid://v/9', title: 'Upsell', unitPriceMinor: 2300, currencyCode: 'EUR', sellable: true }]);
+    const deps = {
+      sessions: { load: vi.fn(async () => s), store: vi.fn(async () => {}), signCookieValue: () => '', verifyCookieValue: () => null },
+      catalog: { resolve },
+      payments: { createIntent: vi.fn(async () => ({ clientHandle: 'x' })) },
+      publisher: { publish: vi.fn(async () => {}) },
+      newSaleId: () => 'sale_upsell_1',
+      clock: () => new Date(),
+    };
+    await new ProcessOneClickUpsellService(deps as any).execute('sess_1', { variantExternalId: 'gid://v/9', quantity: 1 });
+    expect(resolve).toHaveBeenCalledWith(['gid://v/9'], { countryCode: 'DE', currencyCode: 'EUR' });
+    expect(deps.payments.createIntent).toHaveBeenCalledWith('sale_upsell_1', expect.objectContaining({ amountMinor: 2300, currencyCode: 'EUR' }), 'automatic', undefined, expect.anything());
   });
 });

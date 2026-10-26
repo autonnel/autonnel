@@ -79,6 +79,7 @@ model ConfigEntry {
 model User {
   id                         String    @id @default(cuid())
   email                      String    @unique
+  name                       String?
   credentialHash             String
   status                     String    @default("active")
   emailVerifiedAt            DateTime?
@@ -417,10 +418,13 @@ model PaymentIntent {
   last4            String?
   capturedAt       DateTime?
   checkoutSnapshot Json?
+  pendingUpsellSince DateTime?
   // Vault for one-click post-purchase upsells: saved so later off-session charges (Stripe) /
   // deferred capture (PayPal) can reuse the buyer's payment method without re-entry.
   stripeCustomerId      String?
   stripePaymentMethodId String?
+  // Provider-agnostic reusable payment credential (e.g. an MIT agreement id) for off-session upsells.
+  vaultRef              String?
   // PayPal merged upsells: the order is approved (AUTHORIZED) but capture is held until the buyer
   // leaves the upsell chain, so accepted upsells can be PATCHed into the same order before one capture.
   captureDeferred       Boolean       @default(false)
@@ -434,6 +438,7 @@ model PaymentIntent {
   @@unique([provider, providerIntentId])
   @@unique([tenantId, saleRef])
   @@index([status, updatedAt])
+  @@index([pendingUpsellSince])
   @@map("payment_intents")
 }
 
@@ -671,6 +676,9 @@ model AdAccountConnection {
   grantedScopes        String[]
   requiredScopes       String[]
   tokenVersion         Int                       @default(1)
+  reportingTimezone    String?
+  reportingCurrency    String?
+  lastInsightsSyncAt   DateTime?
   destinations         AdConversionDestination[]
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
@@ -732,6 +740,85 @@ model AdAttributionTouch {
   @@index([tenantId, expiresAt])
 }
 
+model AdCreative {
+  id                 String   @id
+  tenantId           String
+  connectionId       String
+  platform           String
+  externalAdId       String
+  name               String
+  status             String
+  campaignExternalId String?
+  campaignName       String?
+  adsetExternalId    String?
+  adsetName          String?
+  destinationUrl     String?
+  normalizedPath     String?
+  // Recomputed on every sync from the destination URL.
+  autoFunnelId       String?
+  // Set by an operator. The sync never touches it; it wins over autoFunnelId.
+  manualFunnelId     String?
+  matchState         String
+  lastSeenAt         DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  metrics AdDailyMetric[]
+
+  @@unique([tenantId, connectionId, externalAdId])
+  @@index([tenantId, normalizedPath])
+  @@index([tenantId, autoFunnelId])
+  @@index([tenantId, manualFunnelId])
+  @@map("ad_creatives")
+}
+
+// One row per ad per DAY IN THE AD ACCOUNT'S OWN TIMEZONE. Never converted to UTC: platform
+// reports are cut on the account's calendar and converting once makes them unreconcilable.
+model AdDailyMetric {
+  id                   String     @id
+  tenantId             String
+  creativeId           String
+  creative             AdCreative @relation(fields: [creativeId], references: [id], onDelete: Cascade)
+  date                 DateTime   @db.Date
+  // Currency is a property of the ad account. Rows are grouped by it and never summed across it.
+  currency             String
+  spendMinor           Int
+  impressions          Int
+  clicks               Int
+  // Null when the platform has no separate link-click metric (Google Ads, TikTok). Rendered as
+  // "-", never as 0.
+  linkClicks           Int?
+  // Float on purpose: platforms return modeled (fractional) conversions.
+  conversions          Float
+  // Platform-reported checkout starts (Meta's `initiate_checkout` action). Null when the platform
+  // has no equivalent metric -- rendered as "-", never as 0, same rule as linkClicks.
+  initiateCheckout     Float?
+  conversionValueMinor Int?
+  syncedAt             DateTime
+
+  @@unique([tenantId, creativeId, date])
+  @@index([tenantId, date])
+  @@map("ad_daily_metrics")
+}
+
+model AdSyncRun {
+  id           String    @id
+  tenantId     String
+  connectionId String
+  startedAt    DateTime
+  finishedAt   DateTime?
+  status       String
+  windowStart  DateTime  @db.Date
+  windowEnd    DateTime  @db.Date
+  adsFetched   Int       @default(0)
+  daysUpserted Int       @default(0)
+  truncated    Boolean   @default(false)
+  error        String?
+
+  @@index([tenantId, connectionId, startedAt])
+  @@map("ad_sync_runs")
+}
+
 model FunnelAdConnection {
   id           String   @id @default(cuid())
   tenantId     String
@@ -766,6 +853,44 @@ model UserActivityEvent {
   @@index([tenantId, visitorId, occurredAt])
   @@index([tenantId, funnelId, occurredAt])
   @@map("user_activity_events")
+}
+
+// One row per page view. Deliberately not columns on UserActivityEvent: that
+// table's grain is one event, and a 20-element array in an unindexable Json
+// column would have to be de-duplicated by (visitorId, pageId) at read time.
+model PageEngagement {
+  id            String   @id @default(cuid())
+  tenantId      String
+  visitorId     String
+  sessionId     String
+  pageId        String
+  funnelId      String?
+  stepId        String?
+
+  /// Wall clock from page load to the leave beacon, including background time.
+  dwellMs       Int
+  /// Foreground-only milliseconds. Null on browsers running a cached tracker
+  /// from before this shipped; those visits fall back to dwellMs.
+  activeMs      Int?
+  maxScrollPct  Int?
+  exitScrollPct Int?
+  /// Share of the document one screen covered, 1-100. Turns depth into screens
+  /// so that "deep" means the same thing on a one-screen page as a fifty-screen one.
+  viewportPct   Int?
+  /// Milliseconds each depth band spent inside the viewport, DEPTH_BANDS wide.
+  dwellByDepth  Int[]
+  /// "<bandIndex>:<kind>" pairs, e.g. "8:cta".
+  interactions  String[]
+
+  occurredAt    DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, visitorId, sessionId, pageId])
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, pageId, occurredAt])
+  @@index([tenantId, funnelId, occurredAt])
+  @@map("page_engagement")
 }
 
 model MediaAsset {

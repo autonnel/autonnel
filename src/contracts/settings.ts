@@ -1,6 +1,8 @@
 import type { FaviconJson, LogoJson } from '@/lib/branding/types';
 import type { LlmModel, LlmModelType } from '@/lib/config/llm-models-types';
 import type { RecallStatsRange } from '@/lib/services/recall-stats.service';
+import type { AdsAppPlatform } from '@/lib/config/ads-apps';
+import type { PluginSettingsField, PluginSettingsValues } from '@/lib/plugins/types';
 
 export interface BrandingDto {
   name: string | null;
@@ -32,7 +34,7 @@ export interface LlmTestResult {
 
 export interface EmailConfigWire {
   id: string;
-  provider: 'SMTP' | 'RESEND';
+  provider: 'SMTP' | 'RESEND' | 'CLOUDFLARE';
   name: string;
   fromEmail: string;
   fromName: string | null;
@@ -44,12 +46,16 @@ export interface EmailConfigWire {
 }
 
 export interface EmailConfigPutInput {
-  provider?: 'SMTP' | 'RESEND';
+  provider?: 'SMTP' | 'RESEND' | 'CLOUDFLARE';
   credentials?: Record<string, unknown>;
   fromEmail?: string;
   fromName?: string;
   replyTo?: string;
   isActive?: boolean;
+}
+
+export interface EmailTestInput {
+  to: string;
 }
 
 export interface RecallInterval {
@@ -98,6 +104,28 @@ export interface GoogleMapsWire {
 
 export interface GoogleMapsPutInput {
   apiKey: string | null;
+}
+
+export interface PluginJobRow {
+  id: string;
+  status: string;
+  attemptCount: number;
+  maxAttempts: number;
+  label: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PluginSettingsWire {
+  panel: { id: string; title: string; description?: string; fields: PluginSettingsField[] };
+  values: PluginSettingsValues;
+  hasConfig: boolean;
+  jobs: PluginJobRow[];
+}
+
+export interface PluginSettingsPutInput {
+  values: PluginSettingsValues;
 }
 
 export interface BrowserRenderingWire {
@@ -290,6 +318,37 @@ export interface EmailTemplateUpsertInput {
   language?: string;
 }
 
+export interface AdsAppConnectionWire {
+  id: string;
+  externalAccountId: string;
+  status: string;
+  reportingTimezone: string | null;
+}
+
+export interface AdsAppPlatformWire {
+  platform: AdsAppPlatform;
+  label: string;
+  hasConfig: boolean;
+  clientIdMasked: string;
+  hasDeveloperToken: boolean;
+  relayEnabled: boolean;
+  connections: AdsAppConnectionWire[];
+}
+
+export interface AdsAppsWire {
+  platforms: AdsAppPlatformWire[];
+}
+
+export interface AdsAppsPutInput {
+  platform: AdsAppPlatform;
+  /** Empty string or null clears the stored client id. */
+  clientId?: string | null;
+  /** Empty string keeps the existing secret; null clears it. */
+  clientSecret?: string | null;
+  /** Google only. Empty string keeps the existing token; null clears it (falls back to the built-in token). */
+  developerToken?: string | null;
+}
+
 export interface EmailTemplateUpsertResult {
   ok: true;
   templateType: string;
@@ -312,6 +371,7 @@ export interface SettingsContracts {
   'GET /api/settings/email': { input: null; output: EmailConfigWire | null };
   'PUT /api/settings/email': { input: EmailConfigPutInput; output: EmailConfigWire };
   'DELETE /api/settings/email': { input: null; output: { success: true } };
+  'POST /api/settings/email/test': { input: EmailTestInput; output: NotificationTestResult };
 
   'GET /api/settings/recall': { input: null; output: RecallConfigWire };
   'PUT /api/settings/recall': { input: RecallPutInput; output: RecallPutResult };
@@ -330,6 +390,9 @@ export interface SettingsContracts {
     output: BrowserRenderingTestResult;
   };
 
+  'GET /api/settings/ads': { input: null; output: AdsAppsWire };
+  'PUT /api/settings/ads': { input: AdsAppsPutInput; output: AdsAppsWire };
+
   // maintenance (GET stays a raw withAuth APIRoute; only PATCH is panel-wired)
   'PATCH /api/settings/maintenance': { input: MaintenancePatchInput; output: MaintenancePatchResult };
 
@@ -339,6 +402,10 @@ export interface SettingsContracts {
     output: { ok: true };
   };
   'DELETE /api/settings/ai-conversion-analysis': { input: null; output: { success: true } };
+
+  'GET /api/settings/plugins/:panelId': { input: null; output: PluginSettingsWire };
+  'PUT /api/settings/plugins/:panelId': { input: PluginSettingsPutInput; output: PluginSettingsWire };
+  'DELETE /api/settings/plugins/:panelId': { input: null; output: PluginSettingsWire };
 
   'GET /api/settings/notifications': { input: null; output: NotificationsWire };
   'PUT /api/settings/notifications': { input: NotificationsPutInput; output: NotificationsWire };

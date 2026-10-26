@@ -10,6 +10,7 @@ import {
   type TextFieldValue,
 } from '../TextField';
 import { useTranslation } from '../LanguageContext';
+import { withPropagatedParams } from '@/lib/analytics/link-params';
 import { normalizeSelection, type SelectedItem, type ProductSelectionData } from './product-selection-types';
 import { ProductSelectorField } from './ProductSelectorField';
 
@@ -106,6 +107,11 @@ const errorBoxStyle: React.CSSProperties = {
 
 const SPINNER_KEYFRAMES = '@keyframes spin { to { transform: rotate(360deg); } }';
 
+function readAnidCookie(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)anid=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function readOrderContext(): OrderContext | null {
   if (typeof window === 'undefined') return null;
   const query = new URLSearchParams(window.location.search);
@@ -114,7 +120,9 @@ function readOrderContext(): OrderContext | null {
     tracking = query.get(key);
     if (tracking) break;
   }
-  const win = window as unknown as { __AUTONNEL_PAGE_ID__?: string; __AUTONNEL_FUNNEL_ID__?: string };
+  const win = window as unknown as { __AUTONNEL_PAGE_ID__?: string; __AUTONNEL_FUNNEL_ID__?: string; __AUTONNEL_SERVER_ANID__?: string };
+  // Same identity chain as the behavior tracker: a buyer who arrived without ?anid still has the cookie.
+  tracking ||= win.__AUTONNEL_SERVER_ANID__ || readAnidCookie();
   return {
     orderId: query.get('orderId'),
     trackingId: tracking,
@@ -122,6 +130,16 @@ function readOrderContext(): OrderContext | null {
     pageId: win.__AUTONNEL_PAGE_ID__ || null,
     upsellIndex: Number.parseInt(query.get('upsellIndex') || '0', 10),
   };
+}
+
+function isAbsoluteHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
 
 export function UpsellAddButton({
@@ -165,6 +183,23 @@ export function UpsellAddButton({
       window.removeEventListener(EVT_PRODUCTS_SELECTED, onSelected);
     };
   }, [staticProductId]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('payment_error') === '1') {
+      setError(t('payment.notCompleted'));
+      url.searchParams.delete('payment_error');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setProcessing(false);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   const bound = normalizeSelection(selectedProduct).items[0];
   const productId = chosen?.productId || bound?.productId || staticProductId;
@@ -214,7 +249,12 @@ export function UpsellAddButton({
         upsellIndex: ctx.upsellIndex,
         funnelId: ctx.funnelId ?? undefined,
         pageId: ctx.pageId ?? undefined,
+        cancelTo: window.location.pathname + window.location.search,
       });
+      if (data.success && data.action === 'redirect' && isAbsoluteHttpUrl(data.redirectUrl)) {
+        window.location.href = data.redirectUrl;
+        return;
+      }
       if (data.success && data.nextStepUrl) {
         window.dispatchEvent(
           new CustomEvent(EVT_ACCEPTED, {
@@ -227,7 +267,7 @@ export function UpsellAddButton({
             },
           }),
         );
-        window.location.href = data.nextStepUrl;
+        window.location.href = withPropagatedParams(data.nextStepUrl);
         return;
       }
       setError((data as { error?: string }).error || t('addToOrder.failedToAdd'));
@@ -258,7 +298,7 @@ export function UpsellAddButton({
           pageId: ctx.pageId ?? undefined,
         });
         if (data.success && data.nextStepUrl) {
-          window.location.href = data.nextStepUrl;
+          window.location.href = withPropagatedParams(data.nextStepUrl);
           return;
         }
       } catch (err) {
@@ -266,7 +306,7 @@ export function UpsellAddButton({
       }
     }
     const fallback = getURLString(declineUrl);
-    if (fallback) window.location.href = fallback;
+    if (fallback) window.location.href = withPropagatedParams(fallback);
   };
 
   const acceptButtonStyle: React.CSSProperties = {

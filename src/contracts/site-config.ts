@@ -29,6 +29,10 @@ export interface ScriptUpdateInput {
   order?: number;
 }
 
+export interface SearchIndexingDto {
+  noindex: boolean;
+}
+
 export interface SiteConfigContracts {
   'GET /api/settings/domains': { input: null; output: DomainDto[] };
   'POST /api/settings/domains': {
@@ -37,6 +41,9 @@ export interface SiteConfigContracts {
   };
   'PUT /api/settings/domains/:id': { input: { isPrimary?: boolean }; output: DomainDto };
   'DELETE /api/settings/domains/:id': { input: null; output: { success: true } };
+
+  'GET /api/settings/search-indexing': { input: null; output: SearchIndexingDto };
+  'PUT /api/settings/search-indexing': { input: SearchIndexingDto; output: SearchIndexingDto };
 
   'GET /api/settings/custom-code': { input: null; output: ScriptDto[] };
   'POST /api/settings/custom-code': { input: ScriptCreateInput; output: ScriptDto };

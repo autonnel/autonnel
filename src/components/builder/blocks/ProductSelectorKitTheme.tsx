@@ -1,6 +1,8 @@
 import React from 'react';
 import { scaledFontSize } from '../TextField';
 import { formatPrice } from './ProductSelectionModal';
+import { useLanguage } from '../LanguageContext';
+import { t } from '../translations';
 import { resolveItemBadge, type BadgeDefaults } from './badge-utils';
 import type { SelectedItem } from './product-selection-types';
 
@@ -27,11 +29,11 @@ function pct(item: SelectedItem): number {
   return Math.round(((item.comparePrice - item.price) / item.comparePrice) * 100);
 }
 
-function savingsLine(item: SelectedItem, currency: string): string {
+function savingsLine(item: SelectedItem, currency: string, language: string): string {
   const parts: string[] = [];
-  if (item.quantity > 1) parts.push(`${formatPrice(item.price / item.quantity, currency)}/ea`);
+  if (item.quantity > 1) parts.push(`${formatPrice(item.price / item.quantity, currency, language)} ${t(language, 'productSelector.perEach')}`);
   const off = pct(item);
-  if (off > 0) parts.push(`${off}% OFF`);
+  if (off > 0) parts.push(t(language, 'productSelector.percentOff', { pct: off }));
   return parts.join(' · ');
 }
 
@@ -92,9 +94,10 @@ function KitCard({
   radioBorderColor: string;
   onPick: () => void;
 }) {
+  const language = useLanguage();
   const badge = resolveItemBadge(item, badgeDefaults);
   const onSale = !!item.comparePrice && item.comparePrice > item.price;
-  const line = savingsLine(item, currency);
+  const line = savingsLine(item, currency, language);
   const indent = 24;
 
   const shell: React.CSSProperties = {
@@ -145,11 +148,11 @@ function KitCard({
 
       <div style={{ marginLeft: indent, marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontWeight: 800, color: selected ? accentColor : textColor, fontSize: scaledFontSize(selected ? 20 : 18) }}>
-          {formatPrice(item.price, currency)}
+          {formatPrice(item.price, currency, language)}
         </span>
         {onSale ? (
           <span style={{ fontSize: scaledFontSize(11), color: strikeColor, textDecoration: 'line-through' }}>
-            {formatPrice(item.comparePrice as number, currency)}
+            {formatPrice(item.comparePrice as number, currency, language)}
           </span>
         ) : null}
       </div>

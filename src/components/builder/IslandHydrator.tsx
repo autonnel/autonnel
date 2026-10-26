@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { islandLoaders } from './island-loaders';
-import { LanguageProvider } from './LanguageContext';
+import { LanguageProvider, CurrencyProvider } from './LanguageContext';
+import { LivePricingProvider } from './live-pricing';
 
 type ComponentMap = Record<string, React.ComponentType<any>>;
 
@@ -56,9 +57,20 @@ function readIslandProps(island: HTMLElement, type: string) {
   }
 }
 
-function mountIsland(island: HTMLElement, Component: React.ComponentType<any>, props: Record<string, any>, language: string) {
+function mountIsland(island: HTMLElement, Component: React.ComponentType<any>, props: Record<string, any>) {
+  const page = island.closest<HTMLElement>('.landing-page');
+  const language = page?.getAttribute('data-language') || 'en';
+  const currency = page?.getAttribute('data-currency') || '';
   createRoot(island).render(
-    createElement(LanguageProvider, { value: language }, createElement(Component, props)),
+    createElement(
+      LanguageProvider,
+      { value: language },
+      createElement(
+        CurrencyProvider,
+        { value: currency },
+        createElement(LivePricingProvider, { value: true }, createElement(Component, props)),
+      ),
+    ),
   );
 }
 
@@ -75,7 +87,7 @@ async function hydrateIslands() {
 
     const props = readIslandProps(island, type);
     if (props) {
-      mountIsland(island, Component, props, 'en');
+      mountIsland(island, Component, props);
     }
   }
 }

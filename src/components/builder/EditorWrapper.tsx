@@ -14,6 +14,7 @@ import { ComponentListSearch } from './ComponentListSearch';
 import { PuckAiPanel } from './PuckAiPanel';
 import { mergePropsWithMediaPreservation } from './mergeMediaProps';
 import { autonnelFieldTransforms } from './inline-text-transform';
+import { EditorPageCurrencyContext, normalizePageCurrency } from './fields/editor-page-currency';
 
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
@@ -402,6 +403,12 @@ function PuckLoading() {
   );
 }
 
+function PageCurrencyProvider({ children }: { children?: React.ReactNode }) {
+  const { appState } = usePuck();
+  const pageCurrency = normalizePageCurrency(appState.data.root?.props?.currency);
+  return <EditorPageCurrencyContext.Provider value={pageCurrency}>{children}</EditorPageCurrencyContext.Provider>;
+}
+
 function useRailPlugins(planId: string, settingsPanel?: React.ReactNode): Plugin[] {
   const ai = useMemo<Plugin>(
     () => ({
@@ -441,10 +448,10 @@ export function EditorWrapper({ initialData, planId, onSave, settingsPanel }: Ed
 
   const puckOverride = useCallback(
     ({ children }: { children?: React.ReactNode }) => (
-      <>
+      <PageCurrencyProvider>
         <GenerateCallbackHandler />
         {children}
-      </>
+      </PageCurrencyProvider>
     ),
     [],
   );

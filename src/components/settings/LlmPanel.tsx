@@ -4,7 +4,7 @@ import { toast } from '@/components/primitives/ds/ToastProvider';
 import LlmModelTable from './llm/LlmModelTable';
 import LlmModelDrawer, { type DrawerMode } from './llm/LlmModelDrawer';
 import { apiCall, ApiCallError } from '@/lib/api/client';
-import type { LlmModel } from '@/lib/config/llm-models-types';
+import type { LlmModel, LlmModelType } from '@/lib/config/llm-models-types';
 
 interface Props {
   initialModels: LlmModel[];
@@ -15,7 +15,7 @@ export default function LlmPanel({ initialModels }: Props) {
   const [drawerMode, setDrawerMode] = useState<DrawerMode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleAdd = () => setDrawerMode({ kind: 'add' });
+  const handleAdd = (type: LlmModelType) => setDrawerMode({ kind: 'add', type });
   const handleEdit = (row: LlmModel) => setDrawerMode({ kind: 'edit', row });
 
   const handleDelete = async (row: LlmModel) => {

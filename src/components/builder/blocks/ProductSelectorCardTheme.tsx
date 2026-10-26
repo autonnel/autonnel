@@ -1,6 +1,8 @@
 import React from 'react';
 import type { SelectedItem } from './product-selection-types';
 import { formatPrice } from './ProductSelectionModal';
+import { useLanguage } from '../LanguageContext';
+import { t } from '../translations';
 import { scaledFontSize } from '../TextField';
 import { resolveItemBadge, type BadgeDefaults } from './badge-utils';
 
@@ -205,6 +207,7 @@ type CardProps = Omit<CardThemeProps, 'items' | 'selectedId' | 'bottomText'> & {
 };
 
 function ProductCardItem(props: CardProps) {
+  const language = useLanguage();
   const {
     item,
     isSelected,
@@ -222,7 +225,7 @@ function ProductCardItem(props: CardProps) {
   const money = deriveMoney(item);
 
   const footerWas = money.reduced ? (
-    <span style={sx.footerWas}>{formatPrice(money.wasSum, currency)}</span>
+    <span style={sx.footerWas}>{formatPrice(money.wasSum, currency, language)}</span>
   ) : null;
 
   return (
@@ -248,18 +251,18 @@ function ProductCardItem(props: CardProps) {
           <div style={sx.info}>
             <div style={sx.title}>{item.productName}</div>
             {item.variantName && <div style={sx.variant}>{item.variantName}</div>}
-            <div style={sx.unitPrice}>{formatPrice(money.unit, currency)}</div>
+            <div style={sx.unitPrice}>{formatPrice(money.unit, currency, language)}</div>
             {perUnitText && <div style={sx.note}>{perUnitText}</div>}
             {money.savedPct > 0 && (
-              <span style={sx.saveTag(discountBadgeColor)}>{money.savedPct}% OFF</span>
+              <span style={sx.saveTag(discountBadgeColor)}>{t(language, 'productSelector.percentOff', { pct: money.savedPct })}</span>
             )}
           </div>
         </div>
 
         <div style={sx.footer(borderColor)}>
-          <span style={sx.footerLabel}>Total Price:</span>
+          <span style={sx.footerLabel}>{t(language, 'productSelector.totalPrice')}</span>
           {footerWas}
-          <span style={sx.footerNow}>{formatPrice(money.sum, currency)}</span>
+          <span style={sx.footerNow}>{formatPrice(money.sum, currency, language)}</span>
         </div>
       </div>
     </div>

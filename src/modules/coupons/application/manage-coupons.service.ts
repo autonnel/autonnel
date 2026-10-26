@@ -72,7 +72,7 @@ export class ManageCouponsService {
     const coupon = await this.repo.findByCode(normalized);
     if (!coupon) return { valid: false, discountMinor: 0, error: 'Coupon not found' };
     const result = coupon.evaluate(subtotalMinor, now);
-    return result.valid ? { ...result, coupon } : result;
+    return { ...result, coupon };
   }
 }
 

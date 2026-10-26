@@ -24,6 +24,8 @@ function printHelp(): void {
 Usage:
   npx autonnel admin:create <email> <password>      Create (or grant) a full-access admin user
   npx autonnel password:reset <email>               Reset a user's password (auto-generated)
+  npx autonnel schema:compose [--plugins src/plugins.ts] [--out prisma/schema]
+                                                     Merge plugin schemaExtension models into a multi-file schema
   npx autonnel --help                                Show this message
   npx autonnel --version                             Print version
 
@@ -89,6 +91,11 @@ export async function runCli(argv: string[]): Promise<void> {
     case 'password:reset': {
       const { runPasswordReset } = await import('./password-reset.js');
       await runPasswordReset(rest);
+      return;
+    }
+    case 'schema:compose': {
+      const { runSchemaCompose } = await import('./schema-compose.js');
+      await runSchemaCompose(rest);
       return;
     }
     case 'authorize': {

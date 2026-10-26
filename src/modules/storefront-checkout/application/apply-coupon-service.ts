@@ -1,5 +1,6 @@
 import { CartPricingService } from '../domain/services/cart-pricing-service';
 import { CouponEvaluationService, type CouponDefinition } from '../domain/services/coupon-evaluation-service';
+import { toCartCurrency, type CurrencyRates } from '../domain/services/coupon-currency';
 import type { FunnelSessionStorePort } from './ports/outbound';
 
 export interface CouponDefinitionReader {
@@ -9,6 +10,7 @@ export interface CouponDefinitionReader {
 export interface ApplyCouponDeps {
   sessions: FunnelSessionStorePort;
   coupons: CouponDefinitionReader;
+  rates(cartCurrency: string): Promise<CurrencyRates | null>;
   ttlSeconds: number;
 }
 
@@ -23,8 +25,10 @@ export class ApplyCouponService {
     if (!session) throw new Error('FunnelSession not found');
     const def = await this.deps.coupons.findByCode(code);
     if (!def) throw new Error('Unknown coupon code');
+    const cartCurrency = session.market.currencyCode;
+    const converted = toCartCurrency(def, cartCurrency, await this.deps.rates(cartCurrency));
     const subtotal = this.pricing.computeTotal([...session.cart.lines], null);
-    const applied = this.evaluation.evaluate(def, subtotal);
+    const applied = this.evaluation.evaluate(converted, subtotal);
     session.applyCoupon(applied);
     await this.deps.sessions.store(session, this.deps.ttlSeconds);
     return { discountMinor: applied.discount.amountMinor };

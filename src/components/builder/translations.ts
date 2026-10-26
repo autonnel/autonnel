@@ -108,7 +108,11 @@ const paypalCard: Catalog = {
 const productSelector: Catalog = {
   'productSelector.noProducts': ['No products configured', 'Keine Produkte konfiguriert', 'Aucun produit configuré', 'No hay productos configurados'],
   'productSelector.noProductsHint': ['Click "Select Products" in the editor panel to add products', 'Klicken Sie im Editor auf "Produkte auswählen", um Produkte hinzuzufügen', 'Cliquez sur « Sélectionner des produits » dans le panneau de l\'éditeur pour ajouter des produits', 'Haga clic en "Seleccionar productos" en el panel del editor para agregar productos'],
+  'productSelector.percentOff': ['{pct}% OFF', '{pct} % RABATT', '{pct} % DE RÉDUCTION', '{pct} % DE DESCUENTO'],
+  'productSelector.totalPrice': ['Total Price:', 'Gesamtpreis:', 'Prix total :', 'Precio total:'],
+  'productSelector.perEach': ['/ea', '/Stk.', '/unité', '/u.'],
   'productSelector.mostPopular': ['Most Popular', 'Beliebteste', 'Le plus populaire', 'Más popular'],
+  'productSelector.loadingPrices': ['Loading prices...', 'Preise werden geladen...', 'Chargement des prix...', 'Cargando precios...'],
 };
 
 const expressCheckout: Catalog = {
@@ -197,6 +201,68 @@ const misc: Catalog = {
   'richText.lastUpdated': ['Last updated:', 'Zuletzt aktualisiert:', 'Dernière mise à jour :', 'Última actualización:'],
 };
 
+const validation: Catalog = {
+  'validation.fieldRequired': ['This field is required', 'Dieses Feld ist erforderlich', 'Ce champ est obligatoire', 'Este campo es obligatorio'],
+  'validation.poBoxNotAllowed': ['PO Box addresses are not allowed', 'Postfachadressen sind nicht zulässig', 'Les boîtes postales ne sont pas autorisées', 'No se permiten apartados postales'],
+  'validation.invalidEmailInline': ['Please enter a valid email address', 'Bitte geben Sie eine gültige E-Mail-Adresse ein', 'Veuillez saisir une adresse e-mail valide', 'Por favor ingrese un correo electrónico válido'],
+  'validation.invalidEmail': ['Please enter a valid email address.', 'Bitte geben Sie eine gültige E-Mail-Adresse ein.', 'Veuillez saisir une adresse e-mail valide.', 'Por favor ingrese un correo electrónico válido.'],
+  'validation.fillShippingFields': ['Please fill in all required shipping fields.', 'Bitte füllen Sie alle erforderlichen Lieferfelder aus.', 'Veuillez remplir tous les champs de livraison obligatoires.', 'Por favor complete todos los campos de envío obligatorios.'],
+  'validation.fillIn': ['Please fill in: {fields}', 'Bitte ausfüllen: {fields}', 'Veuillez remplir : {fields}', 'Por favor complete: {fields}'],
+  'validation.poBox': ['PO Box addresses are not accepted. Please enter a street address.', 'Postfachadressen werden nicht akzeptiert. Bitte geben Sie eine Straßenadresse ein.', 'Les boîtes postales ne sont pas acceptées. Veuillez saisir une adresse de livraison.', 'No se aceptan apartados postales. Por favor ingrese una dirección de calle.'],
+  'validation.fieldEmail': ['Email', 'E-Mail', 'E-mail', 'Correo electrónico'],
+  'validation.fieldFirstName': ['First Name', 'Vorname', 'Prénom', 'Nombre'],
+  'validation.fieldLastName': ['Last Name', 'Nachname', 'Nom', 'Apellido'],
+  'validation.fieldPhone': ['Phone', 'Telefon', 'Téléphone', 'Teléfono'],
+  'validation.fieldAddress': ['Address', 'Adresse', 'Adresse', 'Dirección'],
+  'validation.fieldCity': ['City', 'Stadt', 'Ville', 'Ciudad'],
+  'validation.fieldPostalCode': ['Postal Code', 'Postleitzahl', 'Code postal', 'Código postal'],
+};
+
+const paymentErrors: Catalog = {
+  'payment.currencyNotSupported': ['This payment method does not support the selected currency.', 'Diese Zahlungsmethode unterstützt die ausgewählte Währung nicht.', 'Ce mode de paiement ne prend pas en charge la devise sélectionnée.', 'Este método de pago no admite la moneda seleccionada.'],
+  'payment.failedTryAgain': ['Payment failed. Please try again.', 'Zahlung fehlgeschlagen. Bitte versuchen Sie es erneut.', 'Le paiement a échoué. Veuillez réessayer.', 'El pago falló. Por favor intente nuevamente.'],
+  'payment.failedTryAnotherCard': ['Payment failed. Please try another card.', 'Zahlung fehlgeschlagen. Bitte versuchen Sie es mit einer anderen Karte.', 'Le paiement a échoué. Veuillez essayer une autre carte.', 'El pago falló. Por favor intente con otra tarjeta.'],
+  'payment.failedAfterAuth': ['Payment failed after authentication.', 'Die Zahlung ist nach der Authentifizierung fehlgeschlagen.', 'Le paiement a échoué après l\'authentification.', 'El pago falló después de la autenticación.'],
+  'payment.notCompleted': ['Payment was not completed. Please try again.', 'Die Zahlung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut.', 'Le paiement n\'a pas été finalisé. Veuillez réessayer.', 'El pago no se completó. Por favor intente nuevamente.'],
+  'payment.notCompletedOrOtherCard': ['Payment was not completed. Please try again or use another card.', 'Die Zahlung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut oder verwenden Sie eine andere Karte.', 'Le paiement n\'a pas été finalisé. Veuillez réessayer ou utiliser une autre carte.', 'El pago no se completó. Por favor intente nuevamente o use otra tarjeta.'],
+  'payment.couldNotStart': ['Could not start your payment. Please refresh and try again.', 'Ihre Zahlung konnte nicht gestartet werden. Bitte aktualisieren Sie die Seite und versuchen Sie es erneut.', 'Impossible de démarrer votre paiement. Veuillez actualiser la page et réessayer.', 'No se pudo iniciar su pago. Por favor actualice la página e intente nuevamente.'],
+  'payment.stripeNotConfigured': ['Stripe is not configured.', 'Stripe ist nicht konfiguriert.', 'Stripe n\'est pas configuré.', 'Stripe no está configurado.'],
+  'payment.cardInitFailed': ['Failed to initialize card form.', 'Das Kartenformular konnte nicht initialisiert werden.', 'Impossible d\'initialiser le formulaire de carte.', 'No se pudo inicializar el formulario de tarjeta.'],
+  'payment.cardFormLoadFailed': ['Card form failed to load. Please refresh the page.', 'Das Kartenformular konnte nicht geladen werden. Bitte aktualisieren Sie die Seite.', 'Le formulaire de carte n\'a pas pu être chargé. Veuillez actualiser la page.', 'El formulario de tarjeta no se pudo cargar. Por favor actualice la página.'],
+  'payment.cardFormNotReady': ['Card form not ready. Please wait.', 'Das Kartenformular ist noch nicht bereit. Bitte warten Sie.', 'Le formulaire de carte n\'est pas prêt. Veuillez patienter.', 'El formulario de tarjeta no está listo. Por favor espere.'],
+  'payment.cardValidationFailed': ['Card validation failed.', 'Die Kartenprüfung ist fehlgeschlagen.', 'La validation de la carte a échoué.', 'La validación de la tarjeta falló.'],
+  'payment.authFailed': ['3DS authentication failed.', 'Die 3DS-Authentifizierung ist fehlgeschlagen.', 'L\'authentification 3DS a échoué.', 'La autenticación 3DS falló.'],
+  'payment.orderStartFailed': ['Could not start your order. The item may be unavailable. Please refresh and try again.', 'Ihre Bestellung konnte nicht gestartet werden. Der Artikel ist möglicherweise nicht verfügbar. Bitte aktualisieren Sie die Seite und versuchen Sie es erneut.', 'Impossible de démarrer votre commande. L\'article est peut-être indisponible. Veuillez actualiser la page et réessayer.', 'No se pudo iniciar su pedido. Es posible que el artículo no esté disponible. Por favor actualice la página e intente nuevamente.'],
+  'payment.creditCardPayments': ['Credit card payments', 'Kreditkartenzahlungen', 'Paiements par carte de crédit', 'Pagos con tarjeta de crédito'],
+  'payment.paypalInstruction': ['Click the PayPal button below to complete your payment securely.', 'Klicken Sie auf die PayPal-Schaltfläche unten, um Ihre Zahlung sicher abzuschließen.', 'Cliquez sur le bouton PayPal ci-dessous pour finaliser votre paiement en toute sécurité.', 'Haga clic en el botón de PayPal a continuación para completar su pago de forma segura.'],
+  'payment.paypalLoadFailed': ['Failed to load PayPal. Please try again.', 'PayPal konnte nicht geladen werden. Bitte versuchen Sie es erneut.', 'Impossible de charger PayPal. Veuillez réessayer.', 'No se pudo cargar PayPal. Por favor intente nuevamente.'],
+  'payment.securePayment': ['🔒 Secure payment', '🔒 Sichere Zahlung', '🔒 Paiement sécurisé', '🔒 Pago seguro'],
+  'payment.buyerProtectionIncluded': ['Buyer protection included', 'Käuferschutz inklusive', 'Protection acheteur incluse', 'Protección al comprador incluida'],
+  'payment.buyerProtection': ['Buyer Protection', 'Käuferschutz', 'Protection acheteur', 'Protección al comprador'],
+};
+
+const checkoutMessages: Catalog = {
+  'checkout.processingOrder': ['Processing your order…', 'Ihre Bestellung wird verarbeitet…', 'Traitement de votre commande…', 'Procesando su pedido…'],
+  'checkout.chooseProduct': ['Please choose a product before continuing to payment.', 'Bitte wählen Sie ein Produkt aus, bevor Sie zur Zahlung fortfahren.', 'Veuillez choisir un produit avant de passer au paiement.', 'Por favor elija un producto antes de continuar con el pago.'],
+  'checkout.startFailed': ['We could not start your order. Please check the items and try again.', 'Wir konnten Ihre Bestellung nicht starten. Bitte überprüfen Sie die Artikel und versuchen Sie es erneut.', 'Nous n\'avons pas pu démarrer votre commande. Veuillez vérifier les articles et réessayer.', 'No pudimos iniciar su pedido. Por favor revise los artículos e intente nuevamente.'],
+  'checkout.productUnavailable': ['This product is not available for purchase.', 'Dieses Produkt ist nicht zum Kauf verfügbar.', 'Ce produit n\'est pas disponible à l\'achat.', 'Este producto no está disponible para su compra.'],
+  'checkout.mixedCurrencies': ['The items in your cart must use the same currency.', 'Die Artikel in Ihrem Warenkorb müssen dieselbe Währung verwenden.', 'Les articles de votre panier doivent utiliser la même devise.', 'Los artículos de su carrito deben usar la misma moneda.'],
+  'checkout.priceChanged': ['Prices have changed. Please refresh the page and try again.', 'Die Preise haben sich geändert. Bitte aktualisieren Sie die Seite und versuchen Sie es erneut.', 'Les prix ont changé. Veuillez actualiser la page et réessayer.', 'Los precios han cambiado. Por favor actualice la página e intente nuevamente.'],
+};
+
+const coupon: Catalog = {
+  'coupon.applied': ['Coupon Applied', 'Gutschein eingelöst', 'Code promo appliqué', 'Cupón aplicado'],
+  'coupon.remove': ['Remove', 'Entfernen', 'Retirer', 'Quitar'],
+  'coupon.removeTitle': ['Remove coupon', 'Gutschein entfernen', 'Retirer le code promo', 'Quitar cupón'],
+  'coupon.off': ['OFF', 'RABATT', 'DE RÉDUCTION', 'DE DESCUENTO'],
+  'coupon.currencyUnsupported': ['This coupon is not available for the selected currency.', 'Dieser Gutschein ist für die ausgewählte Währung nicht verfügbar.', 'Ce code promo n\'est pas disponible pour la devise sélectionnée.', 'Este cupón no está disponible para la moneda seleccionada.'],
+  'coupon.notActive': ['This coupon is not active.', 'Dieser Gutschein ist nicht aktiv.', 'Ce code promo n\'est pas actif.', 'Este cupón no está activo.'],
+  'coupon.expired': ['This coupon has expired.', 'Dieser Gutschein ist abgelaufen.', 'Ce code promo a expiré.', 'Este cupón ha caducado.'],
+  'coupon.usageLimit': ['This coupon has reached its usage limit.', 'Dieser Gutschein hat sein Nutzungslimit erreicht.', 'Ce code promo a atteint sa limite d\'utilisation.', 'Este cupón ha alcanzado su límite de uso.'],
+  'coupon.minOrder': ['Order must be at least {amount}', 'Die Bestellung muss mindestens {amount} betragen', 'La commande doit être d\'au moins {amount}', 'El pedido debe ser de al menos {amount}'],
+  'coupon.minNotMet': ['Your order total is below the minimum for this coupon.', 'Ihr Bestellwert liegt unter dem Mindestbetrag für diesen Gutschein.', 'Le total de votre commande est inférieur au minimum requis pour ce code promo.', 'El total de su pedido es inferior al mínimo para este cupón.'],
+};
+
 const CATALOG: Catalog = {
   ...addressLabels,
   ...addressPlaceholders,
@@ -212,6 +278,10 @@ const CATALOG: Catalog = {
   ...orderDetails,
   ...addToOrder,
   ...misc,
+  ...validation,
+  ...paymentErrors,
+  ...checkoutMessages,
+  ...coupon,
 };
 
 export type TranslationKey = keyof typeof CATALOG;

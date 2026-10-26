@@ -1,13 +1,10 @@
-import type { APIContext } from 'astro';
 import { defineRoute, ApiError } from '@/lib/api/define-route';
-import { makeIdentity } from '@/composition/make-identity';
-import { getTenantId } from '@/modules/identity/application/principal-resolution';
-import { resolveIdentityDeps } from '@/composition/identity-deps';
+import { getPermissionRepository } from '@/lib/rbac/repository';
 
-export const PUT = defineRoute('PUT /api/permissions/users/:userId/roles', { feature: 'PERMISSIONS' }, async ({ input, params, locals, request }) => {
+// setUserRoles maps the virtual admin id to the tenant's real Admin role; writing it raw would strip all access.
+export const PUT = defineRoute('PUT /api/permissions/users/:userId/roles', { feature: 'PERMISSIONS' }, async ({ input, params }) => {
   const userId = params.userId as string;
   if (!Array.isArray(input?.roleIds)) throw new ApiError(400, 'roleIds must be an array');
-  const identity = makeIdentity(resolveIdentityDeps({ locals, request } as APIContext));
-  await identity.membershipDashboard.assignRoles({ userId, tenantId: getTenantId(), roleIds: input.roleIds });
+  await getPermissionRepository().setUserRoles(userId, input.roleIds);
   return { success: true as const, userId, roleIds: input.roleIds };
 });

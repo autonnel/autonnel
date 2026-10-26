@@ -1,0 +1,24 @@
+---
+interface Props {
+  active: 'overview' | 'interest' | 'ads';
+  query?: string;
+}
+const { active, query = '' } = Astro.props;
+const tabs = [
+  { id: 'overview', label: 'Overview', href: `/analytics${query}` },
+  { id: 'interest', label: 'Interest', href: `/analytics/interest${query}` },
+  { id: 'ads', label: 'Ads', href: `/analytics/ads${query}` },
+] as const;
+---
+<div class="col-span-12 flex items-center gap-1">
+  {tabs.map((t) => (
+    <a
+      href={t.href}
+      class={`inline-flex items-center h-8 px-3 rounded-[7px] text-[13px] font-medium no-underline border ${
+        active === t.id
+          ? 'bg-ds-ink border-ds-ink text-ds-card'
+          : 'bg-ds-card border-ds-line text-ds-slate hover:bg-[#F9FAFB]'
+      }`}
+    >{t.label}</a>
+  ))}
+</div>

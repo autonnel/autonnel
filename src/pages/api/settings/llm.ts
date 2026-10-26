@@ -2,6 +2,7 @@
 import { defineRoute, ApiError } from '@/lib/api/define-route';
 import { listLlmModels, upsertLlmModel, deleteLlmModel } from '@/lib/config/llm-models';
 import { LLM_MODEL_TYPES, type LlmModel, type LlmModelType } from '@/lib/config/llm-models-types';
+import { usesWorkersAiBinding, validateWorkersAiBaseUrl, WORKERS_AI_PROVIDER } from '@/lib/llm/workers-ai-config';
 import type { LlmModelInput } from '@/contracts/settings';
 
 function maskApiKey(key: string | undefined): string {
@@ -24,14 +25,20 @@ async function parseRow(body: LlmModelInput | null): Promise<LlmModel> {
   if (typeof body.name !== 'string' || !body.name.trim()) throw new ApiError(400, 'name required');
   if (typeof body.provider !== 'string' || !body.provider.trim()) throw new ApiError(400, 'provider required');
   if (typeof body.modelId !== 'string' || !body.modelId.trim()) throw new ApiError(400, 'modelId required');
-  if (typeof body.baseUrl !== 'string' || !body.baseUrl.trim()) throw new ApiError(400, 'baseUrl required');
+  if (typeof body.baseUrl !== 'string') throw new ApiError(400, 'baseUrl must be string');
+  const bindingMode = usesWorkersAiBinding(body.provider.trim(), body.baseUrl);
+  if (!bindingMode && !body.baseUrl.trim()) throw new ApiError(400, 'baseUrl required');
+  if (body.provider.trim() === WORKERS_AI_PROVIDER) {
+    const invalid = validateWorkersAiBaseUrl(body.baseUrl);
+    if (invalid) throw new ApiError(400, invalid);
+  }
   if (typeof body.apiKey !== 'string') throw new ApiError(400, 'apiKey must be string (empty to keep existing)');
   if (body.options !== undefined && (typeof body.options !== 'object' || body.options === null || Array.isArray(body.options))) {
     throw new ApiError(400, 'options must be an object when provided');
   }
 
-  let apiKey = body.apiKey;
-  if (apiKey === '') {
+  let apiKey = bindingMode ? '' : body.apiKey;
+  if (!bindingMode && apiKey === '') {
     const existing = (await listLlmModels()).find((r) => r.type === body.type && r.name === body.name);
     apiKey = existing?.apiKey ?? '';
     if (!apiKey) throw new ApiError(400, 'apiKey required for new row');

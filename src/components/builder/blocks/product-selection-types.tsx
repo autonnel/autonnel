@@ -26,6 +26,14 @@ export type ProductSelectionData = {
 
 const FALLBACK_CURRENCY = 'USD';
 
+export function hasPriceIn(entity: { priceCurrency?: string }, pageCurrency: string): boolean {
+  return !pageCurrency || entity.priceCurrency?.toUpperCase() === pageCurrency.toUpperCase();
+}
+
+export function itemMissingPrice(item: SelectedItem, selectionCurrency: string, pageCurrency: string): boolean {
+  return !!pageCurrency && (item.currency ?? selectionCurrency).toUpperCase() !== pageCurrency.toUpperCase();
+}
+
 export function normalizeSelection(
   value?: SelectedItem[] | ProductSelectionData
 ): ProductSelectionData {

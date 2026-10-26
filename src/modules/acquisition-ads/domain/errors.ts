@@ -22,3 +22,13 @@ export class MappingActivationError extends Error {
     this.name = 'MappingActivationError';
   }
 }
+// A connection with an empty externalAccountId can never sync (see connection.repository's
+// unique index and every insights adapter, which key off this field verbatim), so authorization
+// must fail honestly here instead of persisting a connection nobody can use.
+export class NoAdAccountsDiscoveredError extends Error {
+  code = 'NO_AD_ACCOUNTS' as const;
+  constructor(platform: string) {
+    super(`No ad accounts were discovered for platform ${platform}`);
+    this.name = 'NoAdAccountsDiscoveredError';
+  }
+}

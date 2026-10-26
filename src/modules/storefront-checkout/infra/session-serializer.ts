@@ -1,6 +1,6 @@
 import { Money } from '@/modules/shared-kernel/money';
 import { ExternalRef } from '@/modules/shared-kernel/external-ref';
-import { FunnelSession } from '../domain/funnel-session';
+import { FunnelSession, type SessionMarket } from '../domain/funnel-session';
 import { AttributionSnapshot } from '../domain/value-objects/attribution-snapshot';
 import { FunnelSnapshotRef, StepSlug } from '../domain/value-objects/funnel-snapshot-ref';
 import { ContactHandle } from '../domain/value-objects/contact-handle';
@@ -40,6 +40,8 @@ export interface SerializedSession {
   linkedSaleId: string | null;
   cartLines: SerializedCartLine[];
   coupon: SerializedCoupon | null;
+  // Absent on sessions stored before the market was pinned per session.
+  market?: SessionMarket;
 }
 
 export function serializeSession(session: FunnelSession): SerializedSession {
@@ -62,6 +64,7 @@ export function serializeSession(session: FunnelSession): SerializedSession {
         }
       : null,
     linkedSaleId: session.linkedSaleId,
+    market: { countryCode: session.market.countryCode, currencyCode: session.market.currencyCode },
     cartLines: session.cart.lines.map((l) => ({
       variantExternalId: l.variantExternalId.toString(),
       title: l.title,
@@ -81,7 +84,7 @@ export function serializeSession(session: FunnelSession): SerializedSession {
   };
 }
 
-export function deserializeSession(raw: SerializedSession): FunnelSession {
+export function deserializeSession(raw: SerializedSession, fallbackMarket: SessionMarket): FunnelSession {
   const session = FunnelSession.start({
     sessionId: raw.sessionId,
     tenantId: raw.tenantId,
@@ -89,6 +92,7 @@ export function deserializeSession(raw: SerializedSession): FunnelSession {
     stepSlugs: raw.stepSlugs.map((s) => StepSlug.of(s)),
     attribution: AttributionSnapshot.create(raw.attribution),
     entryStep: StepSlug.of(raw.currentStep),
+    market: raw.market ?? fallbackMarket,
   });
   if (raw.contact) {
     session.captureContact(ContactHandle.rehydrate(raw.contact.channel, raw.contact.normalized, raw.contact.hashedIdentity));

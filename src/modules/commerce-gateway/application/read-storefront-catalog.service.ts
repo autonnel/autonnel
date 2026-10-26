@@ -53,6 +53,7 @@ function resolveVariantPrice(variant: CatalogVariantView, query: PriceQuery): Mo
   if (query.currencyCode) {
     const byCurrency = prices.resolveByCurrency(query.currencyCode);
     if (byCurrency) return byCurrency;
+    return undefined;
   }
   return prices.first();
 }
@@ -69,6 +70,7 @@ function resolveVariantComparePrice(variant: CatalogVariantView, query: PriceQue
     if (prices.resolveByCurrency(query.currencyCode)) {
       return prices.resolveCompareByCurrency(query.currencyCode);
     }
+    return undefined;
   }
   return prices.firstCompare();
 }

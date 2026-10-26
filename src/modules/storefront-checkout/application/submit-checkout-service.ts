@@ -54,7 +54,7 @@ export class SubmitCheckoutService {
 
     if (input.coupon) {
       const subtotal = this.pricing.computeTotal(lines, null);
-      await this.deps.couponGuard.assertRedeemable(input.coupon.code, subtotal.amountMinor, now);
+      await this.deps.couponGuard.assertRedeemable(input.coupon.code, subtotal.amountMinor, subtotal.currencyCode, now);
     }
 
     const saleRef = this.deps.newSaleId();

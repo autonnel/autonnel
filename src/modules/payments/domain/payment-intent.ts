@@ -45,6 +45,7 @@ export class PaymentIntent {
     private _stripePaymentMethodId: string | undefined,
     private _captureDeferred: boolean,
     private _handoffDeferred: boolean,
+    private _vaultRef: string | undefined,
   ) {}
 
   static create(props: CreatePaymentIntentProps): PaymentIntent {
@@ -52,19 +53,19 @@ export class PaymentIntent {
     return new PaymentIntent(
       props.id, props.saleRef, props.provider, props.amount, props.captureMethod,
       PaymentIntentStatus.REQUIRES_PAYMENT, undefined, undefined, [], props.checkoutSnapshot,
-      undefined, undefined, false, false,
+      undefined, undefined, false, false, undefined,
     );
   }
 
   static rehydrate(args: {
     id: string; saleRef: SaleRef; provider: PspSlug; amount: Money; captureMethod: CaptureMethod;
     status: PaymentIntentStatus; providerRef?: ProviderRef; captureResult?: CaptureResult; refundRecords: RefundRecord[];
-    checkoutSnapshot?: unknown; stripeCustomerId?: string; stripePaymentMethodId?: string; captureDeferred?: boolean; handoffDeferred?: boolean;
+    checkoutSnapshot?: unknown; stripeCustomerId?: string; stripePaymentMethodId?: string; captureDeferred?: boolean; handoffDeferred?: boolean; vaultRef?: string;
   }): PaymentIntent {
     return new PaymentIntent(
       args.id, args.saleRef, args.provider, args.amount, args.captureMethod,
       args.status, args.providerRef, args.captureResult, args.refundRecords, args.checkoutSnapshot,
-      args.stripeCustomerId, args.stripePaymentMethodId, args.captureDeferred ?? false, args.handoffDeferred ?? false,
+      args.stripeCustomerId, args.stripePaymentMethodId, args.captureDeferred ?? false, args.handoffDeferred ?? false, args.vaultRef,
     );
   }
 
@@ -77,12 +78,17 @@ export class PaymentIntent {
   get stripePaymentMethodId() { return this._stripePaymentMethodId; }
   get captureDeferred() { return this._captureDeferred; }
   get handoffDeferred() { return this._handoffDeferred; }
+  get vaultRef() { return this._vaultRef; }
 
   // Saved payment method for off-session upsell charges; set incrementally (customer at create,
   // method after confirm).
   setStripeVault(args: { customerId?: string; paymentMethodId?: string }): void {
     if (args.customerId !== undefined) this._stripeCustomerId = args.customerId;
     if (args.paymentMethodId !== undefined) this._stripePaymentMethodId = args.paymentMethodId;
+  }
+
+  setVaultRef(ref: string): void {
+    this._vaultRef = ref;
   }
 
   setCaptureDeferred(deferred: boolean): void {
