@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.7.0
+
+### Upgrading
+
+- **Run `db:push` (or the Docker `schema` service).** New tables `AdCreative`, `AdDailyMetric`, `AdSyncRun` and `PageEngagement`, plus new nullable columns on users, payment intents and ad account connections.
+- **Node / Docker installs now run scheduled tasks.** See "Scheduled tasks run on Node" below.
+- **`@autonnel/plugin-ads` is retired.** Ad-platform OAuth and ad data are built in; remove the plugin from your plugin list.
+
+### Added
+
+- **Ad spend sync and funnel reconciliation.** Connect Meta, Google Ads or TikTok under Settings → Ads (your own OAuth app, or the hosted relay for Meta and Google Ads). Spend, impressions, link clicks, checkouts and conversions are pulled hourly per ad, attributed to a funnel by the ad's landing-page path, and compared with on-site visitors, checkouts, orders and revenue at `/analytics/ads` and in each funnel's analytics. Ads whose URL matches no funnel or several funnels can be assigned by hand. Bing is not covered.
+- **Custom events.** `data-autonnel-event="name"` on any clickable element, or `window.autonnel?.track(name, metadata)`, records an event that shows under its funnel step in Analytics.
+- **Interest panel** at `/analytics/interest`: visitors per page grouped by scroll depth and time on page, with deep links to each depth.
+- **Ad parameters survive every link.** All outbound links, GET forms and common `data-url`-style attributes on customer pages carry the current URL's query parameters, including cross-origin links and script-driven redirects, so click IDs are not lost between pages.
+- **Checkout preselection** with `?variant=<id>[,<id>]` on checkout pages.
+- **Page language and currency** settings for checkout pages; prices and coupons follow the page currency.
+- **Discourage search engines** toggle under Settings → Domains (`robots.txt`, `X-Robots-Tag` and a robots meta tag).
+- **Admin sessions that expire** send the user back to the login page instead of showing a bare error.
+
+- **Payment gateways from plugins.** `paymentProviders` is now a working extension point (`PluginPaymentProvider`: a settings/UI `registration` plus `create(config, runtime)` returning a `PaymentProviderPort`). Plugin gateways appear on `/payment`, in the checkout payment form as a pay button, and can redirect the buyer to a hosted payment page. New routes `GET /api/shop/payment/return/:provider` and `POST /api/shop/payment/webhook/:provider` finish hosted-page payments; the return redirect, the provider notification and the 10-minute reconcile cron share one completion path that publishes `payment.captured` exactly once. Gateways that implement `chargeOffSession` get one-click upsells through a new provider-agnostic `PaymentIntent.vaultRef`. Settings forms gain a `textarea` field type and `secret` flag. See PLUGIN.md.
+
+- **Cloudflare Workers AI models.** Settings → LLM → Cloudflare Workers AI, for text (including the page-builder and analyst agents) and image models. Transport is chosen per model row: the Worker's `AI` binding (no credentials, the deploying account only; the `[ai]` block in `wrangler.toml.template` is commented out because it makes `wrangler dev` require Cloudflare credentials), or the REST API with an account-scoped base URL and an API token, which works on Node and for any Cloudflare account. Image models are text-to-image only; FLUX models that reject `width`/`height` are retried without them. There are no Workers AI video models.
+
+- **Cloudflare Email provider.** Settings → Email Provider → Cloudflare Email sends through the Workers `send_email` binding (`EMAIL`, now declared in `wrangler.toml.template`) or, on Node, through the Cloudflare REST API with an account ID and API token. There are no delivery webhooks, so bounces do not reach the suppression list. On Workers the SMTP option is hidden and rejected by the API, since Workers cannot open SMTP connections.
+
+- **Plugins can react to paid orders.** New `AutonnelPlugin` members: `onConversion` (fired on payment capture and on each Stripe upsell charge, with the buyer's visited URLs for click-id lookup), `jobHandlers` (plugin jobs on the core Job queue with retry and backoff) and `settingsPanels` (a core-rendered configured-card form at `/settings/plugins/<id>` with a delivery log). See PLUGIN.md.
+- **Scheduled tasks run on Node.** The production Node server now runs the same 5-minute tick as the Workers cron trigger (recall emails, fulfillment sync, postback retries, the job queue, ad insights, cleanup), started by the first request. It is on unless `NODE_ENV` is `development` or `test` (the rule that already makes the secrets mandatory); `AUTONNEL_SCHEDULER=off|on` overrides. **Behaviour change for Docker / Node installs:** these tasks never ran there before, so anything already enabled starts acting after the upgrade. With several replicas, share `REDIS_URL` or leave the scheduler on for one replica only.
+- **Plugin crons.** `crons: [{ name, intervalMs, run }]` run as isolated, locked, interval-gated sweeps once per 5-minute tick: on Workers only on the `*/5` invocation (so a minute matching several triggers still runs each once), on Node from the in-process scheduler, and on demand via `POST /api/cron/plugins`.
+- **Plugins work in the production server.** The build-time plugin registry never reached the server bundle, so plugin hooks, panels, jobs and crons were live only in `astro dev`. The new `pluginsModule` integration option (a module exporting `createPlugins()`) makes the server re-register the same list at startup, on Node and on Workers (both the request and the `scheduled` path).
+- **`autonnel/node` build preset** (`defineAutonnelNodeConfig`) for overlay deployments on Node: bundles the core's dependencies so the deployment only needs `sharp` and its own `@prisma/client`.
+- **Plugin tables.** A plugin's `schemaExtension` (new models / enums only, each with `tenantId`, no references to core models) is validated at registration and merged into a multi-file schema by the new `autonnel schema:compose` command; `runtime.model(name)` gives the plugin a tenant-scoped delegate of its own models only.
+- **Plugin runtime cache and payment config.** `runtime.cache` is a plugin and tenant scoped key-value cache (Workers KV on Cloudflare, Redis or memory on Node); `runtime.paymentConfig(slug)` returns the decrypted config of a payment provider the plugin registered, so crons and jobs can call the gateway outside a payment request. See PLUGIN.md.
+- **`autonnel/cloudflare` build preset** for overlay deployments: the workerd build fixes live in one place (`src/integration/cloudflare-base.ts`) instead of being copied into each deployment's Astro config.
+
+### Fixed
+
+- **One-click upsells failed on the upsell page.** The checkout orchestrator also runs on upsell pages and, when the URL carried `?variant=`, opened a new checkout session whose cookie replaced the one that paid the first order, so `/api/shop/upsell` answered 403. Upsell pages no longer sync a cart or open a session.
+- **Upsell button reported "Missing order information" for buyers who arrived without `?anid`.** It only read the tracking id from the URL; it now falls back to the server-resolved id and the `anid` cookie, the same chain as the behavior tracker.
+- **Deferred work threw "Illegal invocation" on Workers.** `waitUntil` was called detached from the execution context, so any job enqueue that drains in the background (for example the merged commerce push after an upsell) failed until the sweep cron picked it up.
+- **Paid checkouts were not suppressed from recall emails.** The suppression upsert left `tenantId` out of its compound key and was rejected on every `payment.captured`.
+- **A provider error on a hosted-payment return showed a 500.** The return and upsell-return routes now keep the buyer on the waiting page while retrying, then send them back to checkout; the reconcile cron still settles the payment.
+- **Refund rows recorded every refund as Stripe.** The reserved refund transaction now takes its provider from the parent payment intent.
+- **Reconcile could starve on abandoned payments.** Pending intents are polled oldest first, and intents left in `PROCESSING` for 24 hours are canceled.
+- **AI chat agents used the model row's display name as the model ID.** The page-builder, GrapesJS and analyst agents sent `name` instead of `modelId`, and picked the Anthropic protocol only when the base URL contained `/anthropic`, so an `anthropic-messages` row pointing at `https://api.anthropic.com` was called as an OpenAI endpoint.
+- **Settings → LLM "+ Add Image Model" / "+ Add Video Model" opened the drawer as a text model.** The model was then saved under Text Models; the drawer now starts with the type and default provider of the table it was opened from.
+- **Email provider edits keep the stored secret.** Saving the form with the password / API key left blank (as the placeholder says) overwrote the stored secret with an empty string.
+
+- **New funnels could not be checked out.** Funnel snapshots are now published on every step edit, and republished on demand when a checkout finds none.
+- **Page clone (Import from URL) broke some sites.** Rehosted assets drop their SRI hashes, relative CSS `url()`s are made absolute, and server-rendered pages are cloned from the raw HTML.
+- **GrapesJS component reset dropped `#id` style rules.**
+- **The storefront bundle loaded the Puck editor runtime**, which also failed on Workers.
+
 ## 1.6.0
 
 ### Added
