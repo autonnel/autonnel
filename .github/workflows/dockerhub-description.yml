@@ -1,0 +1,27 @@
+name: Docker Hub Description
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - README.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Needs a Docker Hub personal access token with read/write/delete scope;
+      # a push-only token is rejected by the description API.
+      - uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: autonnel/autonnel
+          short-description: Open-source AI-native funnel builder for e-commerce
+          readme-filepath: ./README.md
+          enable-url-completion: true

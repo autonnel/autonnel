@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <a href="https://github.com/autonnel/autonnel/blob/master/LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
   <a href="https://www.npmjs.com/package/autonnel"><img alt="npm" src="https://img.shields.io/npm/v/autonnel.svg"></a>
   <a href="https://github.com/autonnel/autonnel/pkgs/container/autonnel"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-autonnel-2496ed.svg"></a>
   <a href="https://autonnel.com/docs"><img alt="Docs" src="https://img.shields.io/badge/docs-autonnel.com-111.svg"></a>
@@ -34,7 +34,7 @@ Your orders and customer data live in a Postgres database you control.
 ### Describe a page, get a page
 
 <p align="center">
-  <img src="./docs/media/ai-page-generation.gif" alt="Typing a prompt in the Autonnel editor and watching it compose a landing page from real components" width="680">
+  <img src="https://raw.githubusercontent.com/autonnel/autonnel/master/docs/media/ai-page-generation.gif" alt="Typing a prompt in the Autonnel editor and watching it compose a landing page from real components" width="680">
 </p>
 
 The agent composes real components onto the canvas, generates the imagery, and
@@ -43,7 +43,7 @@ leaves every edit as diffable JSON. No black-box HTML blob.
 ### Wire the funnel, publish it
 
 <p align="center">
-  <img src="./docs/media/funnel-builder.gif" alt="Building a multi-step funnel in the Autonnel editor and publishing it" width="680">
+  <img src="https://raw.githubusercontent.com/autonnel/autonnel/master/docs/media/funnel-builder.gif" alt="Building a multi-step funnel in the Autonnel editor and publishing it" width="680">
 </p>
 
 ## Why people switch
